@@ -1,7 +1,8 @@
+import os
 import requests
 
-BOT_TOKEN = "8822216767:AAENHmFiC2zWOIUUzl0DaGIwhyVKKuf0EtE"
-CHAT_ID = "7694683964"
+BOT_TOKEN = os.getenv("8822216767:AAENHmFiC2zWOIUUzl0DaGIwhyVKKuf0EtE")
+CHAT_ID = os.getenv("7694683964")
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -12,8 +13,6 @@ def send_telegram(message):
     }
 
     res = requests.post(url, data=payload)
+    print(res.text)
 
-    print("STATUS:", res.status_code)
-    print("RESPONSE:", res.text)
-
-send_telegram("test message")
+send_telegram("hello from github actions")
