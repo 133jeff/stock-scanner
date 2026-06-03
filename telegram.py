@@ -1,6 +1,6 @@
 import requests
 
-BOT_TOKEN = "8822216767:AAG5jWmhp10FDxY_ohpwe3IlxTxjPyaLK28"
+BOT_TOKEN = "8822216767:AAENHmFiC2zWOIUUzl0DaGIwhyVKKuf0EtE"
 CHAT_ID = "7694683964"
 
 def send_telegram(message):
@@ -12,6 +12,8 @@ def send_telegram(message):
     }
 
     res = requests.post(url, data=payload)
-    print(res.text)
+
+    print("STATUS:", res.status_code)
+    print("RESPONSE:", res.text)
 
 send_telegram("test message")
