@@ -1,7 +1,8 @@
+import os
 import requests
 
-BOT_TOKEN = "os.getenv"
-CHAT_ID = "7694683964"
+BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
