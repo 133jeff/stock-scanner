@@ -1,6 +1,6 @@
 import requests
 
-API_KEY = "你的FMPKEY"
+API_KEY = "PGStuFJEoUpLtUjfH3wSbUMp1RruJSgH"
 
 def safe_get(url):
     try:
