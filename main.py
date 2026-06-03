@@ -8,8 +8,9 @@ from scanner import score_stock
 from universe import get_universe
 from telegram import send_telegram
 
+
 # =========================
-# 🌐 保活服务器（解决 Render port error）
+# 🌐 Keep Render alive
 # =========================
 def keep_alive():
     class Handler(BaseHTTPRequestHandler):
@@ -21,14 +22,15 @@ def keep_alive():
     server = HTTPServer(("0.0.0.0", 10000), Handler)
     server.serve_forever()
 
+
 threading.Thread(target=keep_alive, daemon=True).start()
 
 
 # =========================
-# 📊 主扫描逻辑
+# 📊 Main scan logic
 # =========================
 def run():
-    print("🚀 RUN START:", datetime.now())
+    print("\n🚀 RUN START:", datetime.now())
 
     try:
         symbols = get_universe()
@@ -54,8 +56,7 @@ def run():
                 time.sleep(0.2)
 
             except Exception as e:
-                print("Symbol error:", s, e)
-                continue
+                print("Skip:", s, e)
 
         results.sort(key=lambda x: x["score"], reverse=True)
 
@@ -67,6 +68,7 @@ def run():
             msg += line + "\n"
 
         send_telegram(msg)
+
         print("📩 TELEGRAM SENT")
 
     except Exception as e:
@@ -74,7 +76,7 @@ def run():
 
 
 # =========================
-# 🔁 云端持续运行（每2天）
+# 🔁 SAFE LOOP (FIXED)
 # =========================
 if __name__ == "__main__":
     while True:
