@@ -58,4 +58,17 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    while True:
+        try:
+            run()
+
+            print("✅ Scan finished")
+            print("⏰ Sleeping 48 hours...")
+
+            time.sleep(60 * 60 * 48)
+
+        except Exception as e:
+            print("MAIN LOOP ERROR:", e)
+
+            # 出错后等待5分钟再重试
+            time.sleep(300)
