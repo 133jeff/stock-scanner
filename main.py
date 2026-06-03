@@ -11,7 +11,7 @@ from telegram import send_telegram
 
 def keep_alive():
     class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
+        def do_HEAD(self):
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"OK")
@@ -22,7 +22,7 @@ def keep_alive():
 
 threading.Thread(target=keep_alive, daemon=True).start()
 
-print("🔥 SCRIPT STARTED")
+print("🔥 SCRIPT STARTED V99")
 
 
 def run():
