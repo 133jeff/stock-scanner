@@ -1,7 +1,5 @@
 import time
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import threading
 
 from fmp_api import get_quote
 from scanner import score_stock
@@ -9,66 +7,53 @@ from universe import get_universe
 from telegram import send_telegram
 
 
-def keep_alive():
-    class Handler(BaseHTTPRequestHandler):
-
-        def do_GET(self):
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"OK")
-
-        def do_HEAD(self):
-            self.send_response(200)
-            self.end_headers()
-
-    server = HTTPServer(("0.0.0.0", 10000), Handler)
-    server.serve_forever()
+print("🚀 V6 SCANNER STARTED")
 
 
 def run():
-    print("=" * 50)
-    print("🚀 RUN ENTERED", datetime.now())
-    print("=" * 50)
+    print("\n==============================")
+    print("RUN:", datetime.now())
+    print("==============================")
 
-    symbols = get_universe()
-    print("UNIVERSE LOADED:", len(symbols))
-
+    symbols = get_universe()[:10]  # 🔥 控制10只，防FMP爆
     results = []
 
-    for s in symbols[:5]:
+    for s in symbols:
         print("Scanning:", s)
 
-        q = get_quote(s)
-        print("QUOTE:", q)
+        try:
+            q = get_quote(s)
 
-        if not q:
+            if not q or q == {}:
+                print("SKIP EMPTY:", s)
+                continue
+
+            score = score_stock(q)
+
+            results.append({
+                "symbol": s,
+                "price": q.get("price", 0),
+                "score": score
+            })
+
+            time.sleep(1.2)  # 🔥 防限流
+
+        except Exception as e:
+            print("ERROR:", s, e)
             continue
 
-        score = score_stock(q)
+    results.sort(key=lambda x: x["score"], reverse=True)
 
-        results.append({
-            "symbol": s,
-            "price": q.get("price", 0),
-            "score": score
-        })
+    top = results[:5]
 
-    print("DONE LOOP")
+    if top:
+        msg = "🔥 TOP STOCKS:\n"
+        for r in top:
+            msg += f"{r['symbol']} | {r['price']} | score:{r['score']}\n"
 
-    if results:
-        send_telegram("TEST OK: " + str(results))
+        send_telegram(msg)
         print("TELEGRAM SENT")
 
 
 if __name__ == "__main__":
-    print("🔥 MAIN STARTED")
-
-    threading.Thread(target=keep_alive, daemon=True).start()
-
-    # 先立即执行一次
     run()
-
-    # 再进入循环
-    while True:
-        print("⏰ Sleeping 48 hours...")
-        time.sleep(60 * 60 * 48)
-        run()
