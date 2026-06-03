@@ -11,7 +11,12 @@ from telegram import send_telegram
 
 def keep_alive():
     class Handler(BaseHTTPRequestHandler):
+
         def do_HEAD(self):
+            self.send_response(200)
+            self.end_headers()
+
+        def do_GET(self):
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"OK")
@@ -27,7 +32,9 @@ print("🔥 SCRIPT STARTED V99")
 
 
 def run():
+    print("=" * 50)
     print("🚀 RUN ENTERED", datetime.now())
+    print("=" * 50)
 
     symbols = get_universe()
     print("UNIVERSE LOADED:", len(symbols))
