@@ -9,9 +9,6 @@ from universe import get_universe
 from telegram import send_telegram
 
 
-# =========================
-# 🌐 Keep Render alive
-# =========================
 def keep_alive():
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -25,60 +22,40 @@ def keep_alive():
 
 threading.Thread(target=keep_alive, daemon=True).start()
 
+print("🔥 SCRIPT STARTED")
 
-# =========================
-# 📊 Main scan logic
-# =========================
+
 def run():
-    print("\n🚀 RUN START:", datetime.now())
+    print("🚀 RUN ENTERED", datetime.now())
 
-    try:
-        symbols = get_universe()
-        results = []
+    symbols = get_universe()
+    print("UNIVERSE LOADED:", len(symbols))
 
-        for s in symbols:
-            try:
-                print("Scanning:", s)
+    results = []
 
-                q = get_quote(s)
-                if not q:
-                    continue
+    for s in symbols[:5]:  # 先测试5只
+        print("Scanning:", s)
 
-                score = score_stock(q)
+        q = get_quote(s)
+        print("QUOTE:", q)
 
-                results.append({
-                    "symbol": s,
-                    "price": q.get("price", 0),
-                    "change": q.get("changePercentage", 0),
-                    "score": score
-                })
+        if not q:
+            continue
 
-                time.sleep(0.2)
+        score = score_stock(q)
 
-            except Exception as e:
-                print("Skip:", s, e)
+        results.append({
+            "symbol": s,
+            "price": q.get("price", 0),
+            "score": score
+        })
 
-        results.sort(key=lambda x: x["score"], reverse=True)
+    print("DONE LOOP")
 
-        msg = "🚀 TOP PICKS\n\n"
-
-        for r in results[:20]:
-            line = f"{r['symbol']} {r['price']} {r['change']} {r['score']}"
-            print(line)
-            msg += line + "\n"
-
-        send_telegram(msg)
-
-        print("📩 TELEGRAM SENT")
-
-    except Exception as e:
-        print("RUN ERROR:", e)
+    if results:
+        send_telegram("TEST OK: " + str(results))
+        print("TELEGRAM SENT")
 
 
-# =========================
-# 🔁 SAFE LOOP (FIXED)
-# =========================
 if __name__ == "__main__":
-    while True:
-        run()
-        time.sleep(60 * 60 * 48)
+    run()
