@@ -22,6 +22,7 @@ def keep_alive():
 
 threading.Thread(target=keep_alive, daemon=True).start()
 
+print("MAIN.PY LOADED")
 print("🔥 SCRIPT STARTED V99")
 
 
