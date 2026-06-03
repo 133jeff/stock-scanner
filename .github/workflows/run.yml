@@ -24,6 +24,6 @@ jobs:
       - name: Run script
         env:
           FMP_KEY: ${{ secrets.FMP_KEY }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python main.py
