@@ -1,10 +1,32 @@
 import time
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
+
 from fmp_api import get_quote
 from scanner import score_stock
 from universe import get_universe
 from telegram import send_telegram
 
+# =========================
+# 🌐 保活服务器（解决 Render port error）
+# =========================
+def keep_alive():
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"OK")
+
+    server = HTTPServer(("0.0.0.0", 10000), Handler)
+    server.serve_forever()
+
+threading.Thread(target=keep_alive, daemon=True).start()
+
+
+# =========================
+# 📊 主扫描逻辑
+# =========================
 def run():
     print("🚀 RUN START:", datetime.now())
 
@@ -32,7 +54,7 @@ def run():
                 time.sleep(0.2)
 
             except Exception as e:
-                print("Skip symbol error:", s, e)
+                print("Symbol error:", s, e)
                 continue
 
         results.sort(key=lambda x: x["score"], reverse=True)
@@ -51,7 +73,10 @@ def run():
         print("RUN ERROR:", e)
 
 
-# 🔁 保证永远不退出
-while True:
-    run()
-    time.sleep(60 * 60 * 48)  # 每2天
+# =========================
+# 🔁 云端持续运行（每2天）
+# =========================
+if __name__ == "__main__":
+    while True:
+        run()
+        time.sleep(60 * 60 * 48)
