@@ -12,23 +12,17 @@ from telegram import send_telegram
 def keep_alive():
     class Handler(BaseHTTPRequestHandler):
 
-        def do_HEAD(self):
-            self.send_response(200)
-            self.end_headers()
-
         def do_GET(self):
             self.send_response(200)
             self.end_headers()
             self.wfile.write(b"OK")
 
+        def do_HEAD(self):
+            self.send_response(200)
+            self.end_headers()
+
     server = HTTPServer(("0.0.0.0", 10000), Handler)
     server.serve_forever()
-
-
-threading.Thread(target=keep_alive, daemon=True).start()
-
-print("MAIN.PY LOADED")
-print("🔥 SCRIPT STARTED V99")
 
 
 def run():
@@ -41,7 +35,7 @@ def run():
 
     results = []
 
-    for s in symbols[:5]:  # 先测试5只
+    for s in symbols[:5]:
         print("Scanning:", s)
 
         q = get_quote(s)
@@ -66,17 +60,15 @@ def run():
 
 
 if __name__ == "__main__":
+    print("🔥 MAIN STARTED")
+
+    threading.Thread(target=keep_alive, daemon=True).start()
+
+    # 先立即执行一次
+    run()
+
+    # 再进入循环
     while True:
-        try:
-            run()
-
-            print("✅ Scan finished")
-            print("⏰ Sleeping 48 hours...")
-
-            time.sleep(60 * 60 * 48)
-
-        except Exception as e:
-            print("MAIN LOOP ERROR:", e)
-
-            # 出错后等待5分钟再重试
-            time.sleep(300)
+        print("⏰ Sleeping 48 hours...")
+        time.sleep(60 * 60 * 48)
+        run()
