@@ -1,59 +1,21 @@
-import time
-from datetime import datetime
+import os
+import requests
 
-from fmp_api import get_quote
-from scanner import score_stock
-from universe import get_universe
-from telegram import send_telegram
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
+print("BOT_TOKEN:", BOT_TOKEN)
+print("CHAT_ID:", CHAT_ID)
 
-print("🚀 V6 SCANNER STARTED")
+def send_telegram(message):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message
+    }
 
-def run():
-    print("\n==============================")
-    print("RUN:", datetime.now())
-    print("==============================")
+    res = requests.post(url, data=payload)
+    print("RESPONSE:", res.text)
 
-    symbols = get_universe()[:10]  # 🔥 控制10只，防FMP爆
-    results = []
-
-    for s in symbols:
-        print("Scanning:", s)
-
-        try:
-            q = get_quote(s)
-
-            if not q or q == {}:
-                print("SKIP EMPTY:", s)
-                continue
-
-            score = score_stock(q)
-
-            results.append({
-                "symbol": s,
-                "price": q.get("price", 0),
-                "score": score
-            })
-
-            time.sleep(1.2)  # 🔥 防限流
-
-        except Exception as e:
-            print("ERROR:", s, e)
-            continue
-
-    results.sort(key=lambda x: x["score"], reverse=True)
-
-    top = results[:5]
-
-    if top:
-        msg = "🔥 TOP STOCKS:\n"
-        for r in top:
-            msg += f"{r['symbol']} | {r['price']} | score:{r['score']}\n"
-
-        send_telegram(msg)
-        print("TELEGRAM SENT")
-
-
-if __name__ == "__main__":
-    run()
+send_telegram("hello from github actions")
