@@ -190,9 +190,31 @@ def main():
             "zone": zone
         })
 
-    if len(results) == 0:
-        send("⚠️ No signals today")
-        return
+# =========================
+# FALLBACK PROTECTION（永远保证有输出）
+# =========================
+if len(results) == 0:
+    print("⚠️ No full signals, switching fallback mode")
+
+    fallback = []
+
+    for s in STOCKS[:10]:
+        q = get_quote(s)
+
+        if not q:
+            continue
+
+        fallback.append({
+            "symbol": s,
+            "score": 50,
+            "price": q.get("price"),
+            "change": q.get("changesPercentage") or 0,
+            "rsi": 50,
+            "trend": "NO DATA",
+            "zone": "⚪ BASIC VIEW"
+        })
+
+    results = fallback
 
     results = sorted(results, key=lambda x: x["score"], reverse=True)
     top_list = results[:10]
