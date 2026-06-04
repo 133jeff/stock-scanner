@@ -72,6 +72,56 @@ def get_history(symbol):
         return []
 
     return [x["close"] for x in data["historical"]]
+    
+# =========================
+def score_v4(q, prices):
+    price = q.get("price")
+    high = q.get("yearHigh")
+
+    if price is None or high is None or not prices or high == 0:
+        return 0, 50, "NO DATA", ""
+
+    # ===== RSI =====
+    rsi = calc_rsi(prices)
+
+    # ===== trend =====
+    change = q.get("changesPercentage") or q.get("changePercent") or 0
+
+    score = 50
+
+    if change > 2:
+        score += 20
+        trend = "STRONG UP"
+    elif change > 0:
+        score += 10
+        trend = "UP"
+    elif change < -2:
+        score -= 10
+        trend = "DOWN"
+    else:
+        trend = "SIDE"
+
+    # ===== pullback =====
+    dist = (price - high) / high
+
+    if -0.15 < dist < -0.05:
+        score += 20
+        zone = "🟢 BUY ZONE"
+    elif dist < -0.15:
+        score += 10
+        zone = "🟡 WATCH"
+    else:
+        zone = "🔴 OVERHEATED"
+
+    # ===== RSI scoring =====
+    if rsi < 35:
+        score += 20
+    elif rsi < 45:
+        score += 10
+    elif rsi > 70:
+        score -= 10
+
+    return score, rsi, trend, zone
 
 # =========================
 def main():
