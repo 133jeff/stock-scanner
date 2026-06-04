@@ -17,16 +17,14 @@ STOCKS = get_universe()
 def safe_get(url):
     try:
         r = requests.get(url, timeout=10)
-        print("API CALL:", url, "STATUS:", r.status_code)
         if r.status_code != 200:
             return None
         return r.json()
-    except Exception as e:
-        print("API ERROR:", e)
+    except:
         return None
 
 # =========================
-# DATA
+# FMP DATA
 # =========================
 def get_quote(symbol):
     url = f"https://financialmodelingprep.com/stable/quote?symbol={symbol}&apikey={FMP_KEY}"
@@ -35,18 +33,16 @@ def get_quote(symbol):
     if isinstance(data, list) and len(data) > 0:
         return data[0]
 
-    # 🔥 fallback Yahoo
     return get_quote_yahoo(symbol)
 
 
 def get_history(symbol):
-    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_KEY}&timeseries=60"
+    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_KEY}&timeseries=200"
     data = safe_get(url)
 
     if data and "historical" in data:
         return [x["close"] for x in reversed(data["historical"])]
 
-    # 🔥 fallback Yahoo
     return get_history_yahoo(symbol)
 
 # =========================
@@ -58,13 +54,11 @@ def get_quote_yahoo(symbol):
 
     try:
         q = data["quoteResponse"]["result"][0]
-
         return {
             "price": q.get("regularMarketPrice") or 0,
-            "yearHigh": q.get("fiftyTwoWeekHigh"),
+            "yearHigh": q.get("fiftyTwoWeekHigh") or 0,
             "changesPercentage": q.get("regularMarketChangePercent") or 0,
         }
-
     except:
         return None
 
@@ -75,20 +69,25 @@ def get_history_yahoo(symbol):
 
     try:
         result = data["chart"]["result"][0]
-        closes = result["indicators"]["quote"][0]["close"]
-        return [x for x in closes if x is not None and isinstance(x, (int, float))]
+        closes = result["indicators"]["quote"][0].get("close", [])
+        return [x for x in closes if isinstance(x, (int, float))]
     except:
         return []
 
 # =========================
-# RSI
+# INDICATORS
 # =========================
+def sma(prices, period):
+    if len(prices) < period:
+        return sum(prices) / len(prices)
+    return sum(prices[-period:]) / period
+
+
 def calc_rsi(prices):
     if len(prices) < 14:
         return 50
 
-    gains = 0
-    losses = 0
+    gains, losses = 0, 0
 
     for i in range(1, len(prices)):
         diff = prices[i] - prices[i - 1]
@@ -104,66 +103,102 @@ def calc_rsi(prices):
     return 100 - (100 / (1 + rs))
 
 # =========================
-# SCORE ENGINE
+# SCORING V6
 # =========================
-def score_v5(q, prices):
-    price = q.get("price")
-    high = q.get("yearHigh")
+def score_v6(q, prices):
 
-    if not price or not high or not prices:
-        return 0, 50, "NO DATA", ""
+    price = q.get("price")
+    if not price or len(prices) < 50:
+        return 0, 50, "NO DATA", 0, 0
 
     rsi = calc_rsi(prices)
+
+    ma50 = sma(prices, 50)
+    ma200 = sma(prices, 200)
+
     change = float(q.get("changesPercentage") or 0)
 
     score = 60
     trend = "SIDE"
-    zone = "NONE"
 
-    # ===== TREND =====
-    if change > 3:
+    # =========================
+    # TREND (MA STRUCTURE)
+    # =========================
+    if ma50 > ma200:
         score += 20
-        trend = "STRONG UP"
+        trend = "BULL TREND"
+    else:
+        score -= 10
+        trend = "BEAR / SIDE"
+
+    # =========================
+    # MOMENTUM
+    # =========================
+    if change > 3:
+        score += 15
     elif change > 0:
-        score += 10
-        trend = "UP"
+        score += 8
     elif change < -3:
         score -= 10
-        trend = "DOWN"
 
-    # ===== PULLBACK =====
-    dist = (price - high) / high
-
-    if -0.20 < dist < -0.07 and rsi < 60:
-        score += 20
-        zone = "🟢 ACCUMULATION"
-    elif -0.30 < dist < -0.20:
-        score += 10
-        zone = "🟡 WATCH"
-    elif dist > -0.05:
-        score -= 10
-        zone = "🔴 OVERHEATED"
-
-    # ===== RSI =====
+    # =========================
+    # RSI
+    # =========================
     if rsi < 30:
         score += 20
     elif rsi < 45:
         score += 10
     elif rsi > 75:
-        score -= 10
+        score -= 15
 
-    return max(0, min(100, round(score))), rsi, trend, zone
+    # =========================
+    # BREAKOUT LOGIC
+    # =========================
+    breakout = 0
+
+    if price > ma50 > ma200:
+        score += 15
+        breakout = 1
+    elif price < ma50 < ma200:
+        score -= 15
+        breakout = -1
+
+    # =========================
+    # UPSIDE SCORE
+    # =========================
+    upside_score = 0
+    if ma50 > ma200 and rsi < 60:
+        upside_score = 8
+    elif ma50 > ma200:
+        upside_score = 6
+    elif rsi < 40:
+        upside_score = 5
+    else:
+        upside_score = 3
+
+    # =========================
+    # RISK SCORE
+    # =========================
+    risk_score = 0
+    if ma50 < ma200:
+        risk_score += 4
+    if rsi > 75:
+        risk_score += 3
+    if change < -3:
+        risk_score += 2
+
+    risk_score = min(10, risk_score)
+
+    score = max(0, min(100, round(score)))
+
+    return score, rsi, trend, ma50, ma200, upside_score, risk_score
 
 # =========================
 # TELEGRAM
 # =========================
 def send(msg):
-    if not TELEGRAM_TOKEN or not CHAT_ID:
-        print("Missing Telegram config")
-        return
-
     if len(msg) > 3500:
-        msg = msg[:3500] + "\n...\n(TRUNCATED)"
+        msg = msg[:3500] + "\n...(TRUNCATED)"
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
@@ -172,74 +207,52 @@ def send(msg):
 # MAIN
 # =========================
 def main():
-    print("🚀 V5 SCANNER START")
+
+    print("🚀 V6 SCANNER START")
     print("TOTAL STOCKS:", len(STOCKS))
 
     results = []
 
     for s in STOCKS:
+
         q = get_quote(s)
         prices = get_history(s)
 
         if not q or not prices:
             continue
 
-        score_val, rsi, trend, zone = score_v5(q, prices)
+        score, rsi, trend, ma50, ma200, upside, risk = score_v6(q, prices)
 
         results.append({
             "symbol": s,
-            "score": score_val,
+            "score": score,
             "price": q.get("price"),
-            "change": float(q.get("changesPercentage") or 0),
             "rsi": round(rsi, 1),
             "trend": trend,
-            "zone": zone
+            "ma50": round(ma50, 2),
+            "ma200": round(ma200, 2),
+            "upside": upside,
+            "risk": risk
         })
 
-    print("RESULTS SIZE:", len(results))
-
-    # =========================
-    # FALLBACK (never empty)
-    # =========================
     if len(results) == 0:
-        print("FALLBACK MODE")
+        send("⚠️ No signals today")
+        return
 
-        for s in STOCKS[:10]:
-            q = get_quote(s)
-            if not q:
-                continue
-
-            results.append({
-                "symbol": s,
-                "score": 50,
-                "price": q.get("price"),
-                "change": 0,
-                "rsi": 50,
-                "trend": "NO DATA",
-                "zone": "⚪ BASIC"
-            })
-
-    # =========================
-    # SORT
-    # =========================
     results = sorted(results, key=lambda x: x["score"], reverse=True)
     top_list = results[:10]
 
-    print("TOP LIST SIZE:", len(top_list))
-
-    # =========================
-    # MESSAGE
-    # =========================
-    msg = "🚀 V5 STOCK SCANNER TOP\n\n"
+    msg = "🚀 V6 STOCK SCANNER\n\n"
 
     for i, x in enumerate(top_list, 1):
+
         msg += (
             f"{i}. {x['symbol']} ⭐ {x['score']}/100\n"
             f"💰 {x['price']}\n"
-            f"📉 {x['change']}%\n"
             f"📊 RSI: {x['rsi']}\n"
-            f"📈 {x['trend']}\n"
-            f"🎯 {x['zone']}\n\n"
+            f"📈 {x['trend']} (MA50:{x['ma50']} MA200:{x['ma200']})\n"
+            f"🚀 UPSIDE: {x['upside']}/10\n"
+            f"⚠️ RISK: {x['risk']}/10\n\n"
         )
 
     send(msg)
