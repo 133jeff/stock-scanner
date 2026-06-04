@@ -29,6 +29,9 @@ def safe_get(url):
 def get_quote(symbol):
     url = f"https://financialmodelingprep.com/stable/quote?symbol={symbol}&apikey={FMP_KEY}"
     data = safe_get(url)
+
+    print("QUOTE DEBUG:", symbol, data)
+
     return data[0] if isinstance(data, list) and len(data) > 0 else None
 
 
@@ -37,7 +40,10 @@ def get_history(symbol):
     data = safe_get(url)
 
     if not data or "historical" not in data:
+        print("HISTORY DEBUG:", symbol, 0)
         return []
+
+    print("HISTORY DEBUG:", symbol, len(data["historical"]))
 
     return [x["close"] for x in reversed(data["historical"])]
 
