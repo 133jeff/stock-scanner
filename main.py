@@ -30,9 +30,10 @@ def get_quote(symbol):
     url = f"https://financialmodelingprep.com/stable/quote?symbol={symbol}&apikey={FMP_KEY}"
     data = safe_get(url)
 
-    print("QUOTE DEBUG:", symbol, data)
+    if isinstance(data, list) and len(data) > 0:
+        return data[0]
 
-    return data[0] if isinstance(data, list) and len(data) > 0 else None
+    return None
 
 
 def get_history(symbol):
@@ -40,12 +41,8 @@ def get_history(symbol):
     data = safe_get(url)
 
     if not data or "historical" not in data:
-        print("HISTORY DEBUG:", symbol, 0)
         return []
 
-    print("HISTORY DEBUG:", symbol, len(data["historical"]))
-
-    # ⭐⭐⭐ 这里就是关键 RETURN
     return [x["close"] for x in reversed(data["historical"])]
 
 # =========================
@@ -72,22 +69,17 @@ def calc_rsi(prices):
     return 100 - (100 / (1 + rs))
 
 # =========================
-# SCORE
+# SCORE ENGINE
 # =========================
 def score_v5(q, prices):
     price = q.get("price")
     high = q.get("yearHigh")
 
-    if price is None or high is None or not prices or high == 0:
+    if not price or not high or not prices:
         return 0, 50, "NO DATA", ""
 
     rsi = calc_rsi(prices)
-    change = q.get("changesPercentage") or 0
-
-    try:
-        change = float(change)
-    except:
-        change = 0
+    change = float(q.get("changesPercentage") or 0)
 
     score = 60
     trend = "SIDE"
@@ -125,7 +117,7 @@ def score_v5(q, prices):
     elif rsi > 75:
         score -= 10
 
-    return score, rsi, trend, zone
+    return max(0, min(100, round(score))), rsi, trend, zone
 
 # =========================
 # TELEGRAM
@@ -134,6 +126,9 @@ def send(msg):
     if not TELEGRAM_TOKEN or not CHAT_ID:
         print("Missing Telegram config")
         return
+
+    if len(msg) > 3500:
+        msg = msg[:3500] + "\n...\n(TRUNCATED)"
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
@@ -151,7 +146,7 @@ def main():
         q = get_quote(s)
         prices = get_history(s)
 
-        if not q or not prices or len(prices) < 5:
+        if not q or not prices:
             continue
 
         score_val, rsi, trend, zone = score_v5(q, prices)
@@ -160,21 +155,22 @@ def main():
             "symbol": s,
             "score": score_val,
             "price": q.get("price"),
-            "change": q.get("changesPercentage") or 0,
+            "change": float(q.get("changesPercentage") or 0),
             "rsi": round(rsi, 1),
             "trend": trend,
             "zone": zone
         })
 
+    print("RESULTS SIZE:", len(results))
+
     # =========================
-    # FALLBACK（永远不空）
+    # FALLBACK (never empty)
     # =========================
     if len(results) == 0:
-        print("⚠️ fallback triggered")
+        print("FALLBACK MODE")
 
         for s in STOCKS[:10]:
             q = get_quote(s)
-
             if not q:
                 continue
 
@@ -182,18 +178,23 @@ def main():
                 "symbol": s,
                 "score": 50,
                 "price": q.get("price"),
-                "change": q.get("changesPercentage") or 0,
+                "change": 0,
                 "rsi": 50,
                 "trend": "NO DATA",
                 "zone": "⚪ BASIC"
             })
 
     # =========================
-    # SORT + TOP10
+    # SORT
     # =========================
     results = sorted(results, key=lambda x: x["score"], reverse=True)
     top_list = results[:10]
 
+    print("TOP LIST SIZE:", len(top_list))
+
+    # =========================
+    # MESSAGE
+    # =========================
     msg = "🚀 V5 STOCK SCANNER TOP\n\n"
 
     for i, x in enumerate(top_list, 1):
