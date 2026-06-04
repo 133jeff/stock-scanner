@@ -1,11 +1,28 @@
 def get_universe():
     return [
-        "AAPL","MSFT","NVDA","AMZN","META","GOOGL","AVGO","TSLA","AMD","NFLX",
-        "ORCL","IBM","INTC","QCOM","CSCO","ADBE",
-        "PLTR","CRM","NOW","SNOW","NET","CRWD","PANW",
-        "MU","AMAT","LRCX","KLAC","ASML",
-        "JPM","V","MA","BAC","GS","MS",
-        "COST","MCD","SBUX","NKE","PG","KO","PEP",
-        "UNH","LLY","JNJ","PFE","TMO",
-        "XOM","CVX","CAT","GE","BA"
+        # ===== Mega Cap =====
+        "AAPL","MSFT","NVDA","AMZN","GOOGL","META","AVGO","TSLA",
+        "BRK.B","JPM","V","MA","UNH","XOM","LLY","HD","PG","COST",
+
+        # ===== Tech Core =====
+        "AMD","INTC","QCOM","ORCL","CRM","ADBE","NOW","SNOW","PLTR","UBER",
+        "SHOP","NET","TEAM","PANW","CRWD","ZS","DDOG","ANET","MRVL","MU",
+
+        # ===== AI / Infra =====
+        "ASML","TSM","NVDA","AMAT","LRCX","KLAC","AVGO","ARM",
+
+        # ===== Finance =====
+        "GS","MS","C","WFC","BLK","AXP","SCHW","PGR","COF","TFC",
+
+        # ===== Consumer =====
+        "NKE","SBUX","MCD","DIS","NFLX","PEP","KO","PM","MO","UL",
+
+        # ===== Energy =====
+        "XOM","CVX","COP","SLB","EOG","PXD","VLO","MPC","PSX","OKE",
+
+        # ===== Healthcare =====
+        "JNJ","PFE","MRK","ABBV","TMO","DHR","ISRG","BMY","GILD","VRTX",
+
+        # ===== Industrial =====
+        "CAT","DE","BA","GE","HON","UPS","RTX","LMT","ETN","PH"
     ]
