@@ -31,6 +31,7 @@ def get_quote(symbol):
     data = safe_get(url)
     return data[0] if isinstance(data, list) and len(data) > 0 else None
 
+
 def get_history(symbol):
     url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_KEY}&timeseries=250"
     data = safe_get(url)
@@ -54,7 +55,6 @@ def calc_rsi(prices):
 
     for i in range(1, len(recent)):
         diff = recent[i] - recent[i - 1]
-
         if diff > 0:
             gains += diff
         else:
@@ -64,14 +64,30 @@ def calc_rsi(prices):
         return 100
 
     rs = gains / losses
+    return 100 - (100 / (1 + rs))
 
-    return round(
-        100 - (100 / (1 + rs)),
-        1
-    )
+
+def ema(prices, period):
+    if len(prices) < period:
+        return sum(prices) / len(prices)
+
+    k = 2 / (period + 1)
+    e = prices[0]
+
+    for p in prices[1:]:
+        e = p * k + e * (1 - k)
+
+    return e
+
+
+def macd(prices):
+    if len(prices) < 26:
+        return 0
+
+    return ema(prices[-12:], 12) - ema(prices[-26:], 26)
 
 # =========================
-# SCORING (V5)
+# SCORING
 # =========================
 def score_v5(q, prices):
 
@@ -85,72 +101,16 @@ def score_v5(q, prices):
     macd_val = macd(prices)
 
     change = q.get("changesPercentage") or q.get("changePercent") or 0
-
     try:
         change = float(change)
     except:
         change = 0
 
     score = 60
-
     trend = "SIDE"
     zone = "NONE"
 
-    # ===== TREND =====
-    if change > 3 and macd_val > 0:
-        score += 25
-        trend = "STRONG UP"
-
-    elif change > 0 and macd_val > 0:
-        score += 15
-        trend = "UP"
-
-    elif change < -3:
-        score -= 10
-        trend = "DOWN"
-
-    # ===== PULLBACK =====
-    dist = (price - high) / high
-
-    if -0.20 < dist < -0.07 and rsi < 60:
-        score += 25
-        zone = "🟢 ACCUMULATION BUY"
-
-    elif -0.30 < dist < -0.20:
-        score += 15
-        zone = "🟡 DEEP VALUE"
-
-    elif dist > -0.05:
-        score -= 10
-        zone = "🔴 OVERHEATED"
-
-    # ===== RSI =====
-    if rsi < 30:
-        score += 20
-
-    elif rsi < 45:
-        score += 10
-
-    elif rsi > 75:
-        score -= 10
-
-    # ===== MACD =====
-    if macd_val > 0:
-        score += 10
-    else:
-        score -= 5
-
-    # 防止超过100
-    score = max(
-        0,
-        min(100, round(score))
-    )
-
-    return score, rsi, trend, zone
-
-    # =========================
-    # TREND
-    # =========================
+    # ================= TREND
     if change > 3 and macd_val > 0:
         score += 25
         trend = "STRONG UP"
@@ -161,9 +121,7 @@ def score_v5(q, prices):
         score -= 10
         trend = "DOWN"
 
-    # =========================
-    # PULLBACK BUY ZONE
-    # =========================
+    # ================= PULLBACK
     dist = (price - high) / high
 
     if -0.20 < dist < -0.07 and rsi < 60:
@@ -176,9 +134,7 @@ def score_v5(q, prices):
         score -= 10
         zone = "🔴 OVERHEATED"
 
-    # =========================
-    # RSI
-    # =========================
+    # ================= RSI
     if rsi < 30:
         score += 20
     elif rsi < 45:
@@ -186,13 +142,13 @@ def score_v5(q, prices):
     elif rsi > 75:
         score -= 10
 
-    # =========================
-    # MACD CONFIRM
-    # =========================
+    # ================= MACD CONFIRM
     if macd_val > 0:
         score += 10
     else:
         score -= 5
+
+    score = max(0, min(100, round(score)))
 
     return score, rsi, trend, zone
 
@@ -207,7 +163,7 @@ def send(msg):
 # MAIN
 # =========================
 def main():
-    print("🚀 V5 SCANNER START")
+    print("🚀 V5 FINAL SCANNER START")
 
     if not FMP_KEY:
         print("❌ Missing FMP_KEY")
@@ -224,44 +180,40 @@ def main():
 
         score_val, rsi, trend, zone = score_v5(q, prices)
 
-   results.append({
-    "symbol": s,
-    "score": score_val,
-    "price": q.get("price"),
-    "change": q.get("changesPercentage") or 0,
-    "rsi": round(rsi, 1),
-    "trend": trend,
-    "zone": zone
-})
+        results.append({
+            "symbol": s,
+            "score": score_val,
+            "price": q.get("price"),
+            "change": q.get("changesPercentage") or 0,
+            "rsi": round(rsi, 1),
+            "trend": trend,
+            "zone": zone
+        })
 
-    # 🚨 空结果保护
     if len(results) == 0:
         send("⚠️ No signals today")
         return
 
-    # ⭐ 排序（只做一次）
     results = sorted(results, key=lambda x: x["score"], reverse=True)
-
-    # ⭐ TOP10（动态）
     top_list = results[:10]
 
-    msg = "🚀 V5 TOP STOCKS\n\n"
+    msg = "🚀 V5 STOCK SCANNER TOP 10\n\n"
 
-for i, x in enumerate(top_list, 1):
+    for i, x in enumerate(top_list, 1):
 
-    try:
-        change = float(x["change"])
-    except:
-        change = 0
+        try:
+            change = float(x["change"])
+        except:
+            change = 0
 
-    msg += (
-        f"{i}. {x['symbol']} ⭐ {x['score']}/100\n"
-        f"💰 {x['price']}\n"
-        f"📉 {change:.2f}%\n"
-        f"📊 RSI: {x['rsi']}\n"
-        f"📈 {x['trend']}\n"
-        f"🎯 {x['zone']}\n\n"
-    )
+        msg += (
+            f"{i}. {x['symbol']} ⭐ {x['score']}/100\n"
+            f"💰 {x['price']}\n"
+            f"📉 {change:.2f}%\n"
+            f"📊 RSI: {x['rsi']}\n"
+            f"📈 {x['trend']}\n"
+            f"🎯 {x['zone']}\n\n"
+        )
 
     send(msg)
 
