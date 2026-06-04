@@ -7,28 +7,45 @@ CHAT_ID = os.getenv("CHAT_ID")
 
 STOCKS = ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","AVGO","TSLA"]
 
-def get_quote(symbol):
+# =========================
+def safe_get(url):
     try:
-        url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={FMP_KEY}"
-        r = requests.get(url).json()
-
-        if not r:
-            print("NO DATA:", symbol)
+        r = requests.get(url, timeout=10)
+        if r.status_code != 200:
+            print("HTTP ERROR:", r.status_code)
             return None
-
-        return r[0]
-
+        return r.json()
     except Exception as e:
-        print("ERROR:", symbol, e)
+        print("REQUEST ERROR:", e)
         return None
 
+# =========================
+def get_quote(symbol):
+    url = f"https://financialmodelingprep.com/stable/quote?symbol={symbol}&apikey={FMP_KEY}"
+    print("URL:", url)
+
+    data = safe_get(url)
+    print("DATA:", symbol, data)
+
+    if isinstance(data, list) and len(data) > 0:
+        return data[0]
+
+    return None
+
+# =========================
 def send(msg):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
+    res = requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
+    print("Telegram:", res.text)
 
+# =========================
 def score(q):
-    price = q["price"]
-    high = q["yearHigh"]
+    price = q.get("price")
+    high = q.get("yearHigh")
+
+    if not price or not high:
+        return 0, 0
+
     dist = (price - high) / high
 
     score = 0
@@ -43,11 +60,13 @@ def score(q):
 
     return score, dist
 
+# =========================
 def main():
     results = []
 
     for s in STOCKS:
         q = get_quote(s)
+
         if not q:
             continue
 
@@ -57,11 +76,15 @@ def main():
             results.append({
                 "symbol": s,
                 "score": score_val,
-                "price": q["price"],
-                "dist": round(dist*100,2)
+                "price": q.get("price"),
+                "dist": round(dist * 100, 2)
             })
 
     top10 = sorted(results, key=lambda x: x["score"], reverse=True)[:10]
+
+    if not top10:
+        send("⚠️ No stocks passed filter today")
+        return
 
     msg = "🔥 V3 TOP 10\n\n"
 
