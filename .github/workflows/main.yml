@@ -1,26 +1,110 @@
-name: Stock Scanner V3
+import os
+import requests
 
-on:
-  schedule:
-    - cron: "0 2 */2 * *"
-  workflow_dispatch:
+FMP_KEY = os.getenv("FMP_KEY")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
-jobs:
-  run:
-    runs-on: ubuntu-latest
+STOCKS = ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","AVGO","TSLA"]
 
-    steps:
-      - uses: actions/checkout@v4
+# =========================
+# 安全请求
+# =========================
+def safe_get(url):
+    try:
+        r = requests.get(url, timeout=10)
+        if r.status_code != 200:
+            print("HTTP ERROR:", r.status_code)
+            return None
+        return r.json()
+    except Exception as e:
+        print("REQUEST ERROR:", e)
+        return None
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+# =========================
+# 股票数据
+# =========================
+def get_quote(symbol):
+    url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={FMP_KEY}"
+    data = safe_get(url)
 
-      - run: pip install requests
+    print("QUOTE:", symbol, data)
 
-      - name: Run
-        env:
-          FMP_KEY: ${{ secrets.FMP_KEY }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-        run: python main.py
+    if isinstance(data, list) and len(data) > 0:
+        return data[0]
+    return None
+
+# =========================
+# 评分系统（简化稳定版）
+# =========================
+def score(q):
+    price = q.get("price")
+    high = q.get("yearHigh")
+
+    if not price or not high:
+        return 0, 0
+
+    dist = (price - high) / high
+
+    score = 0
+
+    # 回调买点逻辑
+    if -0.15 < dist < -0.05:
+        score += 30
+    elif dist > 0:
+        score += 5
+
+    # 动量
+    if q.get("changesPercentage", 0) > 1:
+        score += 20
+
+    return score, dist
+
+# =========================
+# Telegram发送
+# =========================
+def send(msg):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    res = requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
+    print("Telegram:", res.text)
+
+# =========================
+# 主逻辑
+# =========================
+def main():
+    results = []
+
+    # debug
+    print("FMP_KEY:", FMP_KEY)
+
+    for s in STOCKS:
+        q = get_quote(s)
+
+        if not q:
+            continue
+
+        score_val, dist = score(q)
+
+        if score_val >= 40:
+            results.append({
+                "symbol": s,
+                "score": score_val,
+                "price": q.get("price"),
+                "dist": round(dist * 100, 2)
+            })
+
+    top10 = sorted(results, key=lambda x: x["score"], reverse=True)[:10]
+
+    if not top10:
+        send("⚠️ No stocks passed filter today")
+        return
+
+    msg = "🔥 V3 TOP 10 STOCKS\n\n"
+
+    for i, x in enumerate(top10, 1):
+        msg += f"{i}. {x['symbol']} — {x['score']}/100\n💰 {x['price']}\n📉 {x['dist']}%\n\n"
+
+    send(msg)
+
+if __name__ == "__main__":
+    main()
