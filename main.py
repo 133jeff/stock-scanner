@@ -71,7 +71,7 @@ def get_history(symbol):
     if not data or "historical" not in data:
         return []
 
-    return [x["close"] for x in data["historical"]]
+    return [x["close"] for x in reversed(data["historical"])]
     
 # =========================
 def score_v4(q, prices):
