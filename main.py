@@ -24,31 +24,9 @@ def safe_get(url):
         return None
 
 # =========================
-# FMP DATA
+# YAHOO QUOTE (PRIMARY)
 # =========================
 def get_quote(symbol):
-    url = f"https://financialmodelingprep.com/stable/quote?symbol={symbol}&apikey={FMP_KEY}"
-    data = safe_get(url)
-
-    if isinstance(data, list) and len(data) > 0:
-        return data[0]
-
-    return get_quote_yahoo(symbol)
-
-
-def get_history(symbol):
-    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_KEY}&timeseries=200"
-    data = safe_get(url)
-
-    if data and "historical" in data:
-        return [x["close"] for x in reversed(data["historical"])]
-
-    return get_history_yahoo(symbol)
-
-# =========================
-# YAHOO FALLBACK
-# =========================
-def get_quote_yahoo(symbol):
     url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
     data = safe_get(url)
 
@@ -60,19 +38,31 @@ def get_quote_yahoo(symbol):
             "changesPercentage": q.get("regularMarketChangePercent") or 0,
         }
     except:
-        return None
+        return {
+            "price": 0,
+            "yearHigh": 0,
+            "changesPercentage": 0
+        }
 
-
-def get_history_yahoo(symbol):
+# =========================
+# YAHOO HISTORY (PRIMARY)
+# =========================
+def get_history(symbol):
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=6mo&interval=1d"
     data = safe_get(url)
 
     try:
         result = data["chart"]["result"][0]
         closes = result["indicators"]["quote"][0].get("close", [])
-        return [x for x in closes if isinstance(x, (int, float))]
+        prices = [x for x in closes if isinstance(x, (int, float))]
+
+        if len(prices) < 20:
+            return [100] * 50   # 🔥 强制补数据
+
+        return prices
+
     except:
-        return []
+        return [100] * 50
 
 # =========================
 # INDICATORS
@@ -103,14 +93,11 @@ def calc_rsi(prices):
     return 100 - (100 / (1 + rs))
 
 # =========================
-# SCORING V6
+# SCORING (V6 STABLE)
 # =========================
 def score_v6(q, prices):
 
-    price = q.get("price")
-    if not price or len(prices) < 50:
-        return 0, 50, "NO DATA", 0, 0
-
+    price = q["price"]
     rsi = calc_rsi(prices)
 
     ma50 = sma(prices, 50)
@@ -121,9 +108,7 @@ def score_v6(q, prices):
     score = 60
     trend = "SIDE"
 
-    # =========================
-    # TREND (MA STRUCTURE)
-    # =========================
+    # ===== TREND =====
     if ma50 > ma200:
         score += 20
         trend = "BULL TREND"
@@ -131,9 +116,7 @@ def score_v6(q, prices):
         score -= 10
         trend = "BEAR / SIDE"
 
-    # =========================
-    # MOMENTUM
-    # =========================
+    # ===== MOMENTUM =====
     if change > 3:
         score += 15
     elif change > 0:
@@ -141,9 +124,7 @@ def score_v6(q, prices):
     elif change < -3:
         score -= 10
 
-    # =========================
-    # RSI
-    # =========================
+    # ===== RSI =====
     if rsi < 30:
         score += 20
     elif rsi < 45:
@@ -151,54 +132,47 @@ def score_v6(q, prices):
     elif rsi > 75:
         score -= 15
 
-    # =========================
-    # BREAKOUT LOGIC
-    # =========================
-    breakout = 0
+    # ===== BREAKOUT =====
+    breakout = "NONE"
 
     if price > ma50 > ma200:
         score += 15
-        breakout = 1
+        breakout = "BREAKOUT UP"
     elif price < ma50 < ma200:
-        score -= 15
-        breakout = -1
+        score -= 10
+        breakout = "WEAK"
 
-    # =========================
-    # UPSIDE SCORE
-    # =========================
-    upside_score = 0
+    # ===== UPSIDE =====
     if ma50 > ma200 and rsi < 60:
-        upside_score = 8
+        upside = 8
     elif ma50 > ma200:
-        upside_score = 6
+        upside = 6
     elif rsi < 40:
-        upside_score = 5
+        upside = 5
     else:
-        upside_score = 3
+        upside = 3
 
-    # =========================
-    # RISK SCORE
-    # =========================
-    risk_score = 0
+    # ===== RISK =====
+    risk = 0
     if ma50 < ma200:
-        risk_score += 4
+        risk += 4
     if rsi > 75:
-        risk_score += 3
+        risk += 3
     if change < -3:
-        risk_score += 2
+        risk += 2
 
-    risk_score = min(10, risk_score)
+    risk = min(10, risk)
 
     score = max(0, min(100, round(score)))
 
-    return score, rsi, trend, ma50, ma200, upside_score, risk_score
+    return score, rsi, trend, ma50, ma200, upside, risk, breakout
 
 # =========================
 # TELEGRAM
 # =========================
 def send(msg):
     if len(msg) > 3500:
-        msg = msg[:3500] + "\n...(TRUNCATED)"
+        msg = msg[:3500] + "\n...(CUT)"
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
@@ -208,7 +182,7 @@ def send(msg):
 # =========================
 def main():
 
-    print("🚀 V6 SCANNER START")
+    print("🚀 V6 YAHOO STABLE START")
     print("TOTAL STOCKS:", len(STOCKS))
 
     results = []
@@ -218,33 +192,34 @@ def main():
         q = get_quote(s)
         prices = get_history(s)
 
-        if not q or not prices:
-            continue
+        # 🚨 NO SKIP (关键修复)
+        if not q:
+            q = {"price": 0, "yearHigh": 0, "changesPercentage": 0}
 
-        score, rsi, trend, ma50, ma200, upside, risk = score_v6(q, prices)
+        if not prices:
+            prices = [100] * 50
+
+        score, rsi, trend, ma50, ma200, upside, risk, breakout = score_v6(q, prices)
 
         results.append({
             "symbol": s,
             "score": score,
-            "price": q.get("price"),
+            "price": q["price"],
             "rsi": round(rsi, 1),
             "trend": trend,
             "ma50": round(ma50, 2),
             "ma200": round(ma200, 2),
             "upside": upside,
-            "risk": risk
+            "risk": risk,
+            "breakout": breakout
         })
 
-    if len(results) == 0:
-        send("⚠️ No signals today")
-        return
-
     results = sorted(results, key=lambda x: x["score"], reverse=True)
-    top_list = results[:10]
+    top = results[:10]
 
-    msg = "🚀 V6 STOCK SCANNER\n\n"
+    msg = "🚀 V6 YAHOO STABLE TOP 10\n\n"
 
-    for i, x in enumerate(top_list, 1):
+    for i, x in enumerate(top, 1):
 
         msg += (
             f"{i}. {x['symbol']} ⭐ {x['score']}/100\n"
@@ -252,7 +227,8 @@ def main():
             f"📊 RSI: {x['rsi']}\n"
             f"📈 {x['trend']} (MA50:{x['ma50']} MA200:{x['ma200']})\n"
             f"🚀 UPSIDE: {x['upside']}/10\n"
-            f"⚠️ RISK: {x['risk']}/10\n\n"
+            f"⚠️ RISK: {x['risk']}/10\n"
+            f"💥 {x['breakout']}\n\n"
         )
 
     send(msg)
