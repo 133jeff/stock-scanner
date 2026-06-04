@@ -25,7 +25,7 @@ def safe_get(url):
 # 股票数据
 # =========================
 def get_quote(symbol):
-    url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={FMP_KEY}"
+    url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={API_KEY}"
     data = safe_get(url)
 
     print("QUOTE:", symbol, data)
