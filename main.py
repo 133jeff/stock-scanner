@@ -45,6 +45,7 @@ def get_history(symbol):
 
     print("HISTORY DEBUG:", symbol, len(data["historical"]))
 
+    # ⭐⭐⭐ 这里就是关键 RETURN
     return [x["close"] for x in reversed(data["historical"])]
 
 # =========================
