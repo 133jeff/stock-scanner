@@ -17,10 +17,12 @@ STOCKS = get_universe()
 def safe_get(url):
     try:
         r = requests.get(url, timeout=10)
+        print("API CALL:", url, "STATUS:", r.status_code)
         if r.status_code != 200:
             return None
         return r.json()
-    except:
+    except Exception as e:
+        print("API ERROR:", e)
         return None
 
 # =========================
