@@ -23,12 +23,12 @@ def safe_get(url):
 # =========================
 def get_quote(symbol):
     url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={FMP_KEY}"
-    data = safe_get(url)
+    r = safe_get(url)
 
-    print("QUOTE:", symbol, data)
+    print("RAW:", symbol, r)
 
-    if isinstance(data, list) and len(data) > 0:
-        return data[0]
+    if isinstance(r, list) and len(r) > 0:
+        return r[0]
 
     return None
 
