@@ -8,9 +8,19 @@ CHAT_ID = os.getenv("CHAT_ID")
 STOCKS = ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","AVGO","TSLA"]
 
 def get_quote(symbol):
-    url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={FMP_KEY}"
-    r = requests.get(url).json()
-    return r[0] if r else None
+    try:
+        url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={FMP_KEY}"
+        r = requests.get(url).json()
+
+        if not r:
+            print("NO DATA:", symbol)
+            return None
+
+        return r[0]
+
+    except Exception as e:
+        print("ERROR:", symbol, e)
+        return None
 
 def send(msg):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
