@@ -39,33 +39,39 @@ def send(msg):
     print("Telegram:", res.text)
 
 # =========================
-def score(q):
-    if not q:
-        return 0, 0
+# =========================
+# V4 TECH INDICATORS
+# =========================
 
-    price = q.get("price")
-    high = q.get("yearHigh")
+def calc_rsi(prices):
+    if len(prices) < 15:
+        return 50
 
-    if not price or not high:
-        return 0, 0
+    gains = 0
+    losses = 0
 
-    dist = (price - high) / high
+    for i in range(1, 15):
+        diff = prices[i] - prices[i - 1]
+        if diff > 0:
+            gains += diff
+        else:
+            losses += abs(diff)
 
-    score = 0
+    if losses == 0:
+        return 100
 
-    # 回调区间
-    if -0.15 < dist < -0.05:
-        score += 30
-    elif dist > 0:
-        score += 5
+    rs = gains / losses
+    return 100 - (100 / (1 + rs))
 
-    # 动量（兼容字段）
-    change = q.get("changesPercentage") or q.get("changePercent") or 0
 
-    if change > 1:
-        score += 20
+def get_history(symbol):
+    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_KEY}&timeseries=20"
+    data = safe_get(url)
 
-    return score, dist
+    if not data or "historical" not in data:
+        return []
+
+    return [x["close"] for x in data["historical"]]
 
 # =========================
 def main():
