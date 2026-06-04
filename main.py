@@ -1,11 +1,10 @@
 import os
 import requests
+from universe import get_universe
 
 FMP_KEY = os.getenv("FMP_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-
-from universe import get_universe
 
 STOCKS = get_universe()
 
@@ -23,11 +22,10 @@ def safe_get(url):
 
 # =========================
 def get_quote(symbol):
-    url = f"https://financialmodelingprep.com/stable/quote?symbol={symbol}&apikey={FMP_KEY}"
-    print("URL:", url)
-
+    url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={FMP_KEY}"
     data = safe_get(url)
-    print("DATA:", symbol, data)
+
+    print("QUOTE:", symbol, data)
 
     if isinstance(data, list) and len(data) > 0:
         return data[0]
@@ -42,6 +40,9 @@ def send(msg):
 
 # =========================
 def score(q):
+    if not q:
+        return 0, 0
+
     price = q.get("price")
     high = q.get("yearHigh")
 
@@ -52,18 +53,26 @@ def score(q):
 
     score = 0
 
+    # 回调区间
     if -0.15 < dist < -0.05:
         score += 30
     elif dist > 0:
         score += 5
 
-    if q.get("changesPercentage", 0) > 1:
+    # 动量（兼容字段）
+    change = q.get("changesPercentage") or q.get("changePercent") or 0
+
+    if change > 1:
         score += 20
 
     return score, dist
 
 # =========================
 def main():
+    if not FMP_KEY:
+        print("❌ FMP_KEY missing")
+        return
+
     results = []
 
     for s in STOCKS:
@@ -88,7 +97,7 @@ def main():
         send("⚠️ No stocks passed filter today")
         return
 
-    msg = "🔥 V3 TOP 10\n\n"
+    msg = "🔥 V3 TOP 10 STOCKS\n\n"
 
     for i, x in enumerate(top10, 1):
         msg += f"{i}. {x['symbol']} — {x['score']}/100\n💰 {x['price']}\n📉 {x['dist']}%\n\n"
