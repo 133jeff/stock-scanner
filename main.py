@@ -13,36 +13,28 @@ def safe_get(url):
     try:
         r = requests.get(url, timeout=10)
         if r.status_code != 200:
-            print("HTTP ERROR:", r.status_code)
             return None
         return r.json()
-    except Exception as e:
-        print("REQUEST ERROR:", e)
+    except:
         return None
 
 # =========================
 def get_quote(symbol):
     url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={FMP_KEY}"
-    r = safe_get(url)
-
-    print("RAW:", symbol, r)
-
-    if isinstance(r, list) and len(r) > 0:
-        return r[0]
-
-    return None
+    data = safe_get(url)
+    return data[0] if isinstance(data, list) and len(data) > 0 else None
 
 # =========================
-def send(msg):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    res = requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
-    print("Telegram:", res.text)
+def get_history(symbol):
+    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_KEY}&timeseries=20"
+    data = safe_get(url)
+
+    if not data or "historical" not in data:
+        return []
+
+    return [x["close"] for x in reversed(data["historical"])]
 
 # =========================
-# =========================
-# V4 TECH INDICATORS
-# =========================
-
 def calc_rsi(prices):
     if len(prices) < 15:
         return 50
@@ -50,7 +42,7 @@ def calc_rsi(prices):
     gains = 0
     losses = 0
 
-    for i in range(1, 15):
+    for i in range(1, len(prices)):
         diff = prices[i] - prices[i - 1]
         if diff > 0:
             gains += diff
@@ -63,16 +55,6 @@ def calc_rsi(prices):
     rs = gains / losses
     return 100 - (100 / (1 + rs))
 
-
-def get_history(symbol):
-    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_KEY}&timeseries=20"
-    data = safe_get(url)
-
-    if not data or "historical" not in data:
-        return []
-
-    return [x["close"] for x in reversed(data["historical"])]
-    
 # =========================
 def score_v4(q, prices):
     price = q.get("price")
@@ -81,10 +63,8 @@ def score_v4(q, prices):
     if price is None or high is None or not prices or high == 0:
         return 0, 50, "NO DATA", ""
 
-    # ===== RSI =====
     rsi = calc_rsi(prices)
 
-    # ===== trend =====
     change = q.get("changesPercentage") or q.get("changePercent") or 0
 
     score = 50
@@ -101,7 +81,6 @@ def score_v4(q, prices):
     else:
         trend = "SIDE"
 
-    # ===== pullback =====
     dist = (price - high) / high
 
     if -0.15 < dist < -0.05:
@@ -113,7 +92,6 @@ def score_v4(q, prices):
     else:
         zone = "🔴 OVERHEATED"
 
-    # ===== RSI scoring =====
     if rsi < 35:
         score += 20
     elif rsi < 45:
@@ -124,9 +102,17 @@ def score_v4(q, prices):
     return score, rsi, trend, zone
 
 # =========================
+def send(msg):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
+
+# =========================
 def main():
-    print("DEBUG TOKEN:", TELEGRAM_TOKEN)
-    print("DEBUG CHAT:", CHAT_ID)
+    print("🚀 V4 SCANNER START")
+
+    if not FMP_KEY:
+        print("❌ Missing FMP_KEY")
+        return
 
     results = []
 
@@ -150,18 +136,23 @@ def main():
 
     top10 = sorted(results, key=lambda x: x["score"], reverse=True)[:10]
 
-    msg = "🔥 V4 TOP 10\n\n"
+    if not top10:
+        send("⚠️ No stocks passed V4 filter today")
+        return
+
+    msg = "🔥 V4 TOP 10 STOCKS\n\n"
 
     for i, x in enumerate(top10, 1):
         msg += (
             f"{i}. {x['symbol']} ⭐ {x['score']}/100\n"
-            f"💰 {x['price']}\n"
+            f"💰 Price: {x['price']}\n"
             f"📊 RSI: {x['rsi']}\n"
-            f"📈 {x['trend']}\n"
+            f"📈 Trend: {x['trend']}\n"
             f"{x['zone']}\n\n"
         )
 
     send(msg)
 
+# =========================
 if __name__ == "__main__":
     main()
