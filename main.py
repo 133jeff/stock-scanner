@@ -2,12 +2,17 @@ import os
 import requests
 from universe import get_universe
 
+# =========================
+# ENV
+# =========================
 FMP_KEY = os.getenv("FMP_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
 STOCKS = get_universe()
 
+# =========================
+# SAFE REQUEST
 # =========================
 def safe_get(url):
     try:
@@ -19,14 +24,15 @@ def safe_get(url):
         return None
 
 # =========================
+# DATA
+# =========================
 def get_quote(symbol):
     url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey={FMP_KEY}"
     data = safe_get(url)
     return data[0] if isinstance(data, list) and len(data) > 0 else None
 
-# =========================
 def get_history(symbol):
-    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_KEY}&timeseries=20"
+    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_KEY}&timeseries=30"
     data = safe_get(url)
 
     if not data or "historical" not in data:
@@ -35,8 +41,10 @@ def get_history(symbol):
     return [x["close"] for x in reversed(data["historical"])]
 
 # =========================
+# INDICATORS
+# =========================
 def calc_rsi(prices):
-    if len(prices) < 15:
+    if len(prices) < 14:
         return 50
 
     gains = 0
@@ -55,8 +63,31 @@ def calc_rsi(prices):
     rs = gains / losses
     return 100 - (100 / (1 + rs))
 
+def ema(prices, period=12):
+    if len(prices) < period:
+        return sum(prices) / len(prices)
+
+    k = 2 / (period + 1)
+    e = prices[0]
+
+    for p in prices[1:]:
+        e = p * k + e * (1 - k)
+
+    return e
+
+def macd(prices):
+    if len(prices) < 26:
+        return 0
+
+    ema12 = ema(prices[-12:], 12)
+    ema26 = ema(prices[-26:], 26)
+
+    return ema12 - ema26
+
 # =========================
-def score_v4(q, prices):
+# SCORING (V5)
+# =========================
+def score_v5(q, prices):
     price = q.get("price")
     high = q.get("yearHigh")
 
@@ -64,51 +95,75 @@ def score_v4(q, prices):
         return 0, 50, "NO DATA", ""
 
     rsi = calc_rsi(prices)
+    macd_val = macd(prices)
 
     change = q.get("changesPercentage") or q.get("changePercent") or 0
 
-    score = 50
+    score = 60  # baseline（保证不会空）
 
-    if change > 2:
-        score += 20
+    trend = "SIDE"
+    zone = "NONE"
+
+    # =========================
+    # TREND
+    # =========================
+    if change > 3 and macd_val > 0:
+        score += 25
         trend = "STRONG UP"
-    elif change > 0:
-        score += 10
+    elif change > 0 and macd_val > 0:
+        score += 15
         trend = "UP"
-    elif change < -2:
+    elif change < -3:
         score -= 10
         trend = "DOWN"
-    else:
-        trend = "SIDE"
 
+    # =========================
+    # PULLBACK BUY ZONE
+    # =========================
     dist = (price - high) / high
 
-    if -0.15 < dist < -0.05:
-        score += 20
-        zone = "🟢 BUY ZONE"
-    elif dist < -0.15:
-        score += 10
-        zone = "🟡 WATCH"
-    else:
+    if -0.20 < dist < -0.07 and rsi < 60:
+        score += 25
+        zone = "🟢 ACCUMULATION BUY"
+    elif -0.30 < dist < -0.20:
+        score += 15
+        zone = "🟡 DEEP VALUE"
+    elif dist > -0.05:
+        score -= 10
         zone = "🔴 OVERHEATED"
 
-    if rsi < 35:
+    # =========================
+    # RSI
+    # =========================
+    if rsi < 30:
         score += 20
     elif rsi < 45:
         score += 10
-    elif rsi > 70:
+    elif rsi > 75:
         score -= 10
+
+    # =========================
+    # MACD CONFIRM
+    # =========================
+    if macd_val > 0:
+        score += 10
+    else:
+        score -= 5
 
     return score, rsi, trend, zone
 
+# =========================
+# TELEGRAM
 # =========================
 def send(msg):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
 
 # =========================
+# MAIN
+# =========================
 def main():
-    print("🚀 V4 SCANNER START")
+    print("🚀 V5 SCANNER START")
 
     if not FMP_KEY:
         print("❌ Missing FMP_KEY")
@@ -120,10 +175,10 @@ def main():
         q = get_quote(s)
         prices = get_history(s)
 
-        if not q or not prices:
+        if not q or not prices or len(prices) < 5:
             continue
 
-        score_val, rsi, trend, zone = score_v4(q, prices)
+        score_val, rsi, trend, zone = score_v5(q, prices)
 
         results.append({
             "symbol": s,
@@ -134,21 +189,19 @@ def main():
             "zone": zone
         })
 
-    top10 = sorted(results, key=lambda x: x["score"], reverse=True)[:10]
+    # ⭐ 强制TOP10（永远不空）
+    results = sorted(results, key=lambda x: x["score"], reverse=True)
+    top10 = results[:10]
 
-    if not top10:
-        send("⚠️ No stocks passed V4 filter today")
-        return
-
-    msg = "🔥 V4 TOP 10 STOCKS\n\n"
+    msg = "🚀 V5 TOP 10 STOCKS\n\n"
 
     for i, x in enumerate(top10, 1):
         msg += (
             f"{i}. {x['symbol']} ⭐ {x['score']}/100\n"
-            f"💰 Price: {x['price']}\n"
+            f"💰 {x['price']}\n"
             f"📊 RSI: {x['rsi']}\n"
-            f"📈 Trend: {x['trend']}\n"
-            f"{x['zone']}\n\n"
+            f"📈 {x['trend']}\n"
+            f"🎯 {x['zone']}\n\n"
         )
 
     send(msg)
