@@ -16,15 +16,24 @@ STOCKS = get_universe()
 # =========================
 def safe_get(url):
     try:
-        r = requests.get(url, timeout=10)
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+        r = requests.get(url, headers=headers, timeout=10)
+
         if r.status_code != 200:
             return None
-        return r.json()
+
+        try:
+            return r.json()
+        except:
+            return None
+
     except:
         return None
 
 # =========================
-# YAHOO QUOTE (PRIMARY)
+# YAHOO QUOTE
 # =========================
 def get_quote(symbol):
     url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
@@ -38,31 +47,28 @@ def get_quote(symbol):
             "changesPercentage": q.get("regularMarketChangePercent") or 0,
         }
     except:
-        return {
-            "price": 0,
-            "yearHigh": 0,
-            "changesPercentage": 0
-        }
+        return None
 
 # =========================
-# YAHOO HISTORY (PRIMARY)
+# YAHOO HISTORY (FIXED)
 # =========================
 def get_history(symbol):
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=6mo&interval=1d"
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
     data = safe_get(url)
 
     try:
         result = data["chart"]["result"][0]
         closes = result["indicators"]["quote"][0].get("close", [])
-        prices = [x for x in closes if isinstance(x, (int, float))]
 
-        if len(prices) < 20:
-            return [100] * 50   # 🔥 强制补数据
+        prices = []
+        for x in closes:
+            if x is not None:
+                prices.append(float(x))
 
-        return prices
+        return prices[-250:]
 
     except:
-        return [100] * 50
+        return []
 
 # =========================
 # INDICATORS
@@ -93,15 +99,18 @@ def calc_rsi(prices):
     return 100 - (100 / (1 + rs))
 
 # =========================
-# SCORING (V6 STABLE)
+# SCORING V6 FIXED
 # =========================
 def score_v6(q, prices):
 
-    price = q["price"]
+    price = q.get("price")
+    if not price or len(prices) < 20:
+        return 0, 50, "NO DATA", 0, 0, 0, 0, "NONE"
+
     rsi = calc_rsi(prices)
 
-    ma50 = sma(prices, 50)
-    ma200 = sma(prices, 200)
+    ma50 = sma(prices, min(50, len(prices)))
+    ma200 = sma(prices, min(200, len(prices)))
 
     change = float(q.get("changesPercentage") or 0)
 
@@ -134,7 +143,6 @@ def score_v6(q, prices):
 
     # ===== BREAKOUT =====
     breakout = "NONE"
-
     if price > ma50 > ma200:
         score += 15
         breakout = "BREAKOUT UP"
@@ -182,7 +190,7 @@ def send(msg):
 # =========================
 def main():
 
-    print("🚀 V6 YAHOO STABLE START")
+    print("🚀 V6 YAHOO STABLE FINAL")
     print("TOTAL STOCKS:", len(STOCKS))
 
     results = []
@@ -192,12 +200,8 @@ def main():
         q = get_quote(s)
         prices = get_history(s)
 
-        # 🚨 NO SKIP (关键修复)
-        if not q:
-            q = {"price": 0, "yearHigh": 0, "changesPercentage": 0}
-
-        if not prices:
-            prices = [100] * 50
+        if not q or not prices:
+            continue
 
         score, rsi, trend, ma50, ma200, upside, risk, breakout = score_v6(q, prices)
 
@@ -213,6 +217,10 @@ def main():
             "risk": risk,
             "breakout": breakout
         })
+
+    if len(results) == 0:
+        send("⚠️ No signals today")
+        return
 
     results = sorted(results, key=lambda x: x["score"], reverse=True)
     top = results[:10]
