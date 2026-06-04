@@ -35,17 +35,50 @@ def get_quote(symbol):
     if isinstance(data, list) and len(data) > 0:
         return data[0]
 
-    return None
+    # 🔥 fallback Yahoo
+    return get_quote_yahoo(symbol)
 
 
 def get_history(symbol):
     url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_KEY}&timeseries=60"
     data = safe_get(url)
 
-    if not data or "historical" not in data:
-        return []
+    if data and "historical" in data:
+        return [x["close"] for x in reversed(data["historical"])]
 
-    return [x["close"] for x in reversed(data["historical"])]
+    # 🔥 fallback Yahoo
+    return get_history_yahoo(symbol)
+
+# =========================
+# YAHOO FALLBACK
+# =========================
+def get_quote_yahoo(symbol):
+    url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
+    data = safe_get(url)
+
+    try:
+        q = data["quoteResponse"]["result"][0]
+
+        return {
+            "price": q.get("regularMarketPrice") or 0,
+            "yearHigh": q.get("fiftyTwoWeekHigh"),
+            "changesPercentage": q.get("regularMarketChangePercent") or 0,
+        }
+
+    except:
+        return None
+
+
+def get_history_yahoo(symbol):
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=6mo&interval=1d"
+    data = safe_get(url)
+
+    try:
+        result = data["chart"]["result"][0]
+        closes = result["indicators"]["quote"][0]["close"]
+        return [x for x in closes if x is not None and isinstance(x, (int, float))]
+    except:
+        return []
 
 # =========================
 # RSI
