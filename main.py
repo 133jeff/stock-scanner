@@ -189,25 +189,29 @@ def main():
             "zone": zone
         })
 
-# ⭐ 排序
-results = sorted(results, key=lambda x: x["score"], reverse=True)
+    # 🚨 空结果保护
+    if len(results) == 0:
+        send("⚠️ No signals today")
+        return
 
-# ⭐ 动态TOP（最多10个）
-topN = min(10, len(results))
-top_list = results[:topN]
+    # ⭐ 排序（只做一次）
+    results = sorted(results, key=lambda x: x["score"], reverse=True)
 
-msg = "🚀 V5 TOP STOCKS\n\n"
+    # ⭐ TOP10（动态）
+    top_list = results[:10]
 
-for i, x in enumerate(top_list, 1):
-    msg += (
-        f"{i}. {x['symbol']} ⭐ {x['score']}/100\n"
-        f"💰 {x['price']}\n"
-        f"📊 RSI: {x['rsi']}\n"
-        f"📈 {x['trend']}\n"
-        f"🎯 {x['zone']}\n\n"
-    )
+    msg = "🚀 V5 TOP STOCKS\n\n"
 
-send(msg)
+    for i, x in enumerate(top_list, 1):
+        msg += (
+            f"{i}. {x['symbol']} ⭐ {x['score']}/100\n"
+            f"💰 {x['price']}\n"
+            f"📊 RSI: {x['rsi']}\n"
+            f"📈 {x['trend']}\n"
+            f"🎯 {x['zone']}\n\n"
+        )
+
+    send(msg)
 
 # =========================
 if __name__ == "__main__":
