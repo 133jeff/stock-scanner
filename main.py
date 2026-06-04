@@ -77,39 +77,39 @@ def get_history(symbol):
 def main():
     print("DEBUG TOKEN:", TELEGRAM_TOKEN)
     print("DEBUG CHAT:", CHAT_ID)
-    
-    if not FMP_KEY:
-        print("❌ FMP_KEY missing")
-        return
 
     results = []
 
     for s in STOCKS:
         q = get_quote(s)
+        prices = get_history(s)
 
-        if not q:
+        if not q or not prices:
             continue
 
-        score_val, dist = score(q)
+        score_val, rsi, trend, zone = score_v4(q, prices)
 
-        if score_val >= 40:
-            results.append({
-                "symbol": s,
-                "score": score_val,
-                "price": q.get("price"),
-                "dist": round(dist * 100, 2)
-            })
+        results.append({
+            "symbol": s,
+            "score": score_val,
+            "price": q.get("price"),
+            "rsi": round(rsi, 1),
+            "trend": trend,
+            "zone": zone
+        })
 
     top10 = sorted(results, key=lambda x: x["score"], reverse=True)[:10]
 
-    if not top10:
-        send("⚠️ No stocks passed filter today")
-        return
-
-    msg = "🔥 V3 TOP 10 STOCKS\n\n"
+    msg = "🔥 V4 TOP 10\n\n"
 
     for i, x in enumerate(top10, 1):
-        msg += f"{i}. {x['symbol']} — {x['score']}/100\n💰 {x['price']}\n📉 {x['dist']}%\n\n"
+        msg += (
+            f"{i}. {x['symbol']} ⭐ {x['score']}/100\n"
+            f"💰 {x['price']}\n"
+            f"📊 RSI: {x['rsi']}\n"
+            f"📈 {x['trend']}\n"
+            f"{x['zone']}\n\n"
+        )
 
     send(msg)
 
