@@ -5,7 +5,9 @@ FMP_KEY = os.getenv("FMP_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-STOCKS = ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","AVGO","TSLA"]
+from universe import get_universe
+
+STOCKS = get_universe()
 
 # =========================
 def safe_get(url):
