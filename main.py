@@ -69,6 +69,9 @@ def score(q):
 
 # =========================
 def main():
+    print("DEBUG TOKEN:", TELEGRAM_TOKEN)
+    print("DEBUG CHAT:", CHAT_ID)
+    
     if not FMP_KEY:
         print("❌ FMP_KEY missing")
         return
