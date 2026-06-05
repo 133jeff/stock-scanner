@@ -14,10 +14,10 @@ CHAT_ID = os.getenv("CHAT_ID")
 STOCKS = get_universe()
 
 # =========================
-# SAFE REQUEST (with retry)
+# SAFE REQUEST
 # =========================
 def safe_get(url, headers=None):
-    for _ in range(2):  # retry twice
+    for _ in range(2):
         try:
             r = requests.get(url, headers=headers, timeout=10)
             if r.status_code == 200:
@@ -27,8 +27,10 @@ def safe_get(url, headers=None):
     return None
 
 # =========================
-# FMP
+# DATA SOURCES
 # =========================
+
+# ---- FMP ----
 def get_fmp_quote(symbol):
     url = f"https://financialmodelingprep.com/stable/quote?symbol={symbol}&apikey={FMP_KEY}"
     data = safe_get(url)
@@ -36,10 +38,9 @@ def get_fmp_quote(symbol):
         q = data[0]
         return {
             "price": q.get("price") or 0,
-            "changesPercentage": q.get("changesPercentage") or 0,
+            "changes": q.get("changesPercentage") or 0
         }
     return None
-
 
 def get_fmp_history(symbol):
     url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_KEY}&timeseries=200"
@@ -50,20 +51,17 @@ def get_fmp_history(symbol):
             return prices
     return None
 
-# =========================
-# TWELVE DATA (fallback)
-# =========================
+# ---- TWELVE DATA ----
 def get_twelve_quote(symbol):
     url = f"https://api.twelvedata.com/price?symbol={symbol}&apikey={TWELVE_KEY}"
     data = safe_get(url)
     try:
         return {
             "price": float(data["price"]),
-            "changesPercentage": 0
+            "changes": 0
         }
     except:
         return None
-
 
 def get_twelve_history(symbol):
     url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1day&outputsize=200&apikey={TWELVE_KEY}"
@@ -75,9 +73,7 @@ def get_twelve_history(symbol):
     except:
         return None
 
-# =========================
-# YAHOO (last fallback)
-# =========================
+# ---- YAHOO ----
 def get_yahoo_quote(symbol):
     url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
     data = safe_get(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -85,11 +81,10 @@ def get_yahoo_quote(symbol):
         q = data["quoteResponse"]["result"][0]
         return {
             "price": q.get("regularMarketPrice") or 0,
-            "changesPercentage": q.get("regularMarketChangePercent") or 0
+            "changes": q.get("regularMarketChangePercent") or 0
         }
     except:
         return None
-
 
 def get_yahoo_history(symbol):
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=6mo&interval=1d"
@@ -101,28 +96,21 @@ def get_yahoo_history(symbol):
         return None
 
 # =========================
-# MASTER DATA ENGINE
+# MASTER ENGINE
 # =========================
 def get_quote(symbol):
-
-    q = get_fmp_quote(symbol)
-    if q: return q
-
-    q = get_twelve_quote(symbol)
-    if q: return q
-
-    return get_yahoo_quote(symbol)
-
+    return (
+        get_fmp_quote(symbol)
+        or get_twelve_quote(symbol)
+        or get_yahoo_quote(symbol)
+    )
 
 def get_history(symbol):
-
-    h = get_fmp_history(symbol)
-    if h: return h
-
-    h = get_twelve_history(symbol)
-    if h: return h
-
-    return get_yahoo_history(symbol)
+    return (
+        get_fmp_history(symbol)
+        or get_twelve_history(symbol)
+        or get_yahoo_history(symbol)
+    )
 
 # =========================
 # INDICATORS
@@ -132,14 +120,13 @@ def sma(prices, period):
         return sum(prices) / len(prices)
     return sum(prices[-period:]) / period
 
-
 def rsi(prices):
     if len(prices) < 14:
         return 50
 
     gain, loss = 0, 0
     for i in range(1, len(prices)):
-        diff = prices[i] - prices[i-1]
+        diff = prices[i] - prices[i - 1]
         if diff > 0:
             gain += diff
         else:
@@ -152,38 +139,61 @@ def rsi(prices):
     return 100 - (100 / (1 + rs))
 
 # =========================
-# SCORE
+# V7 SIGNAL ENGINE
 # =========================
-def score(q, prices):
 
-    price = q.get("price", 0)
-    if price == 0 or len(prices) < 30:
-        return None
+def momentum(prices):
+    if len(prices) < 10:
+        return 0
+    return (prices[-1] - prices[-10]) / prices[-10]
 
-    r = rsi(prices)
-    ma50 = sma(prices, min(50, len(prices)))
-    ma200 = sma(prices, min(200, len(prices)))
+def regime(ma50, ma200, r):
+    if ma50 > ma200 and r > 55:
+        return "RISK-ON"
+    elif ma50 < ma200:
+        return "RISK-OFF"
+    return "NEUTRAL"
 
-    change = q.get("changesPercentage", 0)
+def breakout(price, ma50, ma200):
+    if price > ma50 > ma200:
+        return "STRONG UP"
+    elif price < ma50 < ma200:
+        return "DOWN"
+    return "NONE"
 
-    s = 50
-
+def probability(r, ma50, ma200, m):
+    p = 50
     if ma50 > ma200:
-        s += 20
+        p += 20
     else:
-        s -= 10
+        p -= 20
 
-    if r < 30:
-        s += 15
-    elif r > 75:
-        s -= 10
+    if r < 35:
+        p += 15
+    elif r > 70:
+        p -= 15
 
-    if change > 2:
-        s += 10
+    if m > 0:
+        p += 10
+    else:
+        p -= 10
 
-    s = max(0, min(100, round(s)))
+    return max(0, min(100, p))
 
-    return s, r, ma50, ma200
+def signal(prob, reg, brk):
+    if reg == "RISK-OFF" and prob < 45:
+        return "SELL"
+
+    if brk == "STRONG UP" and prob > 65:
+        return "BUY"
+
+    if prob > 70:
+        return "BUY"
+
+    if prob < 40:
+        return "SELL"
+
+    return "HOLD"
 
 # =========================
 # TELEGRAM
@@ -197,7 +207,8 @@ def send(msg):
 # =========================
 def main():
 
-    print("🚀 STABLE V2 FINAL START")
+    print("🚀 V7 SIGNAL SYSTEM START")
+
     results = []
 
     for s in STOCKS:
@@ -208,32 +219,50 @@ def main():
         if not q or not p:
             continue
 
-        res = score(q, p)
+        price = q["price"]
+        r = rsi(p)
 
-        if not res:
-            continue
+        ma50 = sma(p, min(50, len(p)))
+        ma200 = sma(p, min(200, len(p)))
 
-        s_score, r, ma50, ma200 = res
+        m = momentum(p)
+
+        reg = regime(ma50, ma200, r)
+        brk = breakout(price, ma50, ma200)
+        prob = probability(r, ma50, ma200, m)
+        action = signal(prob, reg, brk)
 
         results.append({
             "symbol": s,
-            "score": s_score,
+            "price": price,
             "rsi": round(r, 1),
-            "price": q["price"]
+            "ma50": round(ma50, 2),
+            "ma200": round(ma200, 2),
+            "regime": reg,
+            "breakout": brk,
+            "prob": prob,
+            "signal": action
         })
 
-    results.sort(key=lambda x: x["score"], reverse=True)
-
-    if len(results) == 0:
-        send("⚠️ No signals (ALL DATA FAILED)")
-        return
+    results.sort(key=lambda x: x["prob"], reverse=True)
 
     top = results[:10]
 
-    msg = "🚀 STABLE V2 FINAL\n\n"
+    if len(top) == 0:
+        send("⚠️ No signals")
+        return
+
+    msg = "🚀 V7 SIGNAL SYSTEM TOP 10\n\n"
 
     for i, x in enumerate(top, 1):
-        msg += f"{i}. {x['symbol']} ⭐ {x['score']}/100\n💰 {x['price']}\n📊 RSI: {x['rsi']}\n\n"
+
+        msg += (
+            f"{i}. {x['symbol']} {x['signal']} ({x['prob']}/100)\n"
+            f"💰 {x['price']}\n"
+            f"📊 RSI: {x['rsi']}\n"
+            f"🌐 {x['regime']}\n"
+            f"💥 {x['breakout']}\n\n"
+        )
 
     send(msg)
 
