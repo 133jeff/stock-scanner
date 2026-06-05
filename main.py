@@ -205,6 +205,8 @@ def main():
 
     results = []
 
+    print("ENTER LOOP")
+
     for s in STOCKS:
 
         print("CHECK:", s)
@@ -243,6 +245,8 @@ def main():
         return
 
     results = sorted(results, key=lambda x: x["score"], reverse=True)
+
+    top = results[:10]
 
     msg = "🚀 V6 YAHOO STABLE TOP 10\n\n"
 
