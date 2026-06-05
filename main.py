@@ -27,23 +27,24 @@ def safe_get(url):
             return r.json()
         except:
             return None
-
     except:
         return None
 
 
 # =========================
-# FMP HISTORY
+# 1️⃣ FMP HISTORY (PRIMARY)
 # =========================
 def get_history_fmp(symbol):
+    if not FMP_KEY:
+        return []
 
-    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_KEY}&timeseries=200"
+    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_KEY}&timeseries=500"
     data = safe_get(url)
 
     try:
         if data and "historical" in data:
             prices = [x["close"] for x in reversed(data["historical"]) if x.get("close")]
-            if len(prices) > 50:
+            if len(prices) > 20:
                 return prices
     except:
         pass
@@ -52,20 +53,20 @@ def get_history_fmp(symbol):
 
 
 # =========================
-# TWELVE DATA HISTORY (FALLBACK)
+# 2️⃣ TWELVE DATA (SECONDARY)
 # =========================
 def get_history_twelve(symbol):
-
     if not TWELVE_KEY:
         return []
 
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1day&outputsize=200&apikey={TWELVE_KEY}"
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=1day&outputsize=500&apikey={TWELVE_KEY}"
     data = safe_get(url)
 
     try:
         values = data.get("values", [])
         prices = [float(x["close"]) for x in reversed(values)]
-        if len(prices) > 50:
+
+        if len(prices) > 20:
             return prices
     except:
         pass
@@ -74,55 +75,81 @@ def get_history_twelve(symbol):
 
 
 # =========================
-# FINAL HISTORY (SMART SWITCH)
+# 3️⃣ YAHOO (LAST RESORT)
 # =========================
-def get_history(symbol):
+def get_history_yahoo(symbol):
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=2y&interval=1d"
+    data = safe_get(url)
 
-    # 1. FMP
-    prices = get_history_fmp(symbol)
-    if len(prices) > 50:
-        return prices
+    try:
+        closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+        prices = [x for x in closes if isinstance(x, (int, float))]
 
-    # 2. Twelve Data
-    prices = get_history_twelve(symbol)
-    if len(prices) > 50:
-        return prices
+        if len(prices) > 20:
+            return prices
+    except:
+        pass
 
     return []
 
 
 # =========================
-# QUOTE (FMP ONLY)
+# FINAL HISTORY ENGINE
+# =========================
+def get_history(symbol):
+
+    # FMP
+    prices = get_history_fmp(symbol)
+    if len(prices) > 20:
+        return prices
+
+    # TwelveData
+    prices = get_history_twelve(symbol)
+    if len(prices) > 20:
+        return prices
+
+    # Yahoo fallback
+    prices = get_history_yahoo(symbol)
+    if len(prices) > 20:
+        return prices
+
+    # ❗最后保护（不会用来误导趋势，只避免崩溃）
+    return []
+
+
+# =========================
+# QUOTE (FMP + SAFE)
 # =========================
 def get_quote(symbol):
 
-    url = f"https://financialmodelingprep.com/stable/quote?symbol={symbol}&apikey={FMP_KEY}"
-    data = safe_get(url)
+    if FMP_KEY:
+        url = f"https://financialmodelingprep.com/stable/quote?symbol={symbol}&apikey={FMP_KEY}"
+        data = safe_get(url)
 
-    try:
-        if isinstance(data, list) and len(data) > 0:
-            q = data[0]
-            return {
-                "price": q.get("price") or 0,
-                "changesPercentage": q.get("changesPercentage") or 0
-            }
-    except:
-        pass
+        try:
+            if isinstance(data, list) and len(data) > 0:
+                q = data[0]
+                return {
+                    "price": float(q.get("price") or 0),
+                    "changesPercentage": float(q.get("changesPercentage") or 0)
+                }
+        except:
+            pass
 
-    return None
+    return {"price": 0, "changesPercentage": 0}
 
 
 # =========================
-# INDICATORS
+# INDICATORS (SAFE VERSION)
 # =========================
 def sma(prices, period):
     if len(prices) < period:
-        return sum(prices) / len(prices)
+        return None
     return sum(prices[-period:]) / period
 
 
 def calc_rsi(prices):
-    if len(prices) < 14:
+    if len(prices) < 15:
         return 50
 
     gains, losses = 0, 0
@@ -142,34 +169,39 @@ def calc_rsi(prices):
 
 
 # =========================
-# SCORING V10 STABLE
+# SCORING V12 (CLEAN + SAFE)
 # =========================
-def score_v10(q, prices):
+def score_v12(q, prices):
 
     price = q.get("price", 0)
 
-    if price == 0 or len(prices) < 20:
-        return 0, 50, "NO DATA", 0, 0, 0, 0, "NONE"
+    # ❗必须有真实价格或历史最后价
+    if price == 0 and len(prices) > 0:
+        price = prices[-1]
 
     rsi = calc_rsi(prices)
 
-    ma50 = sma(prices, min(50, len(prices)))
-    ma200 = sma(prices, min(200, len(prices)))
+    ma50 = sma(prices, 50)
+    ma200 = sma(prices, 200)
 
     change = float(q.get("changesPercentage") or 0)
 
     score = 60
-    trend = "SIDE"
+    trend = "NO TREND"
 
-    # TREND
-    if ma50 > ma200:
-        score += 20
-        trend = "BULL"
+    # ===== TREND =====
+    if ma50 and ma200:
+        if ma50 > ma200:
+            score += 20
+            trend = "BULL"
+        else:
+            score -= 10
+            trend = "BEAR"
     else:
-        score -= 10
-        trend = "BEAR"
+        score -= 5
+        trend = "WEAK DATA"
 
-    # MOMENTUM
+    # ===== MOMENTUM =====
     if change > 3:
         score += 15
     elif change > 0:
@@ -177,7 +209,7 @@ def score_v10(q, prices):
     elif change < -3:
         score -= 10
 
-    # RSI
+    # ===== RSI =====
     if rsi < 30:
         score += 20
     elif rsi < 45:
@@ -185,28 +217,33 @@ def score_v10(q, prices):
     elif rsi > 75:
         score -= 15
 
-    # BREAKOUT
+    # ===== BREAKOUT =====
     breakout = "NONE"
-    if price > ma50 > ma200:
-        score += 15
-        breakout = "BREAKOUT UP"
-    elif price < ma50 < ma200:
-        score -= 10
-        breakout = "WEAK"
 
-    # UPSIDE
-    if ma50 > ma200 and rsi < 60:
-        upside = 8
-    elif ma50 > ma200:
-        upside = 6
-    elif rsi < 40:
-        upside = 5
+    if ma50 and ma200:
+        if price > ma50 > ma200:
+            score += 15
+            breakout = "UP"
+        elif price < ma50 < ma200:
+            score -= 10
+            breakout = "DOWN"
+
+    # ===== UPSIDE =====
+    if ma50 and ma200:
+        if ma50 > ma200 and rsi < 60:
+            upside = 8
+        elif ma50 > ma200:
+            upside = 6
+        elif rsi < 40:
+            upside = 5
+        else:
+            upside = 3
     else:
         upside = 3
 
-    # RISK
+    # ===== RISK =====
     risk = 0
-    if ma50 < ma200:
+    if ma50 and ma200 and ma50 < ma200:
         risk += 4
     if rsi > 75:
         risk += 3
@@ -217,7 +254,7 @@ def score_v10(q, prices):
 
     score = max(0, min(100, round(score)))
 
-    return score, rsi, trend, ma50, ma200, upside, risk, breakout
+    return score, rsi, trend, ma50 or 0, ma200 or 0, upside, risk, breakout
 
 
 # =========================
@@ -225,7 +262,6 @@ def score_v10(q, prices):
 # =========================
 def send(msg):
 
-    print("TELEGRAM MESSAGE:")
     print(msg)
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -241,32 +277,25 @@ def send(msg):
 # =========================
 def main():
 
-    print("🚀 V10 STABLE START")
+    print("🚀 V12 FINAL START")
     print("TOTAL STOCKS:", len(STOCKS))
 
     results = []
 
     for s in STOCKS:
 
-        print("CHECK:", s)
-
         q = get_quote(s)
         prices = get_history(s)
-
-        print("PRICE LEN:", len(prices))
-
-        if not q:
-            continue
 
         if len(prices) < 20:
             continue
 
-        score, rsi, trend, ma50, ma200, upside, risk, breakout = score_v10(q, prices)
+        score, rsi, trend, ma50, ma200, upside, risk, breakout = score_v12(q, prices)
 
         results.append({
             "symbol": s,
             "score": score,
-            "price": q["price"],
+            "price": q.get("price", 0),
             "rsi": round(rsi, 1),
             "trend": trend,
             "ma50": round(ma50, 2),
@@ -277,16 +306,12 @@ def main():
         })
 
     results = sorted(results, key=lambda x: x["score"], reverse=True)
+
     top = results[:10]
 
-    if len(top) == 0:
-        send("⚠️ No signals today")
-        return
-
-    msg = "🚀 V10 STABLE TOP 10\n\n"
+    msg = "🚀 V12 FINAL TOP 10\n\n"
 
     for i, x in enumerate(top, 1):
-
         msg += (
             f"{i}. {x['symbol']} ⭐ {x['score']}/100\n"
             f"💰 {x['price']}\n"
