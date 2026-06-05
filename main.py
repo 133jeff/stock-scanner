@@ -12,22 +12,35 @@ CHAT_ID = os.getenv("CHAT_ID")
 STOCKS = get_universe()
 
 # =========================
-# SAFE REQUEST
+# SAFE REQUEST (DEBUG VERSION)
 # =========================
 def safe_get(url):
     try:
-        headers = {"User-Agent": "Mozilla/5.0"}
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json"
+        }
+
         r = requests.get(url, headers=headers, timeout=10)
 
+        print("\n======================")
+        print("API CALL:", url)
+        print("STATUS:", r.status_code)
+
         if r.status_code != 200:
+            print("BODY:", r.text[:200])
             return None
 
         try:
-            return r.json()
-        except:
+            data = r.json()
+            return data
+        except Exception as e:
+            print("JSON ERROR:", e)
+            print("RAW:", r.text[:200])
             return None
 
-    except:
+    except Exception as e:
+        print("REQUEST ERROR:", e)
         return None
 
 
@@ -50,6 +63,7 @@ def get_quote(symbol):
 
 
 def get_quote_yahoo(symbol):
+
     url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
     data = safe_get(url)
 
@@ -59,7 +73,8 @@ def get_quote_yahoo(symbol):
             "price": float(q.get("regularMarketPrice") or 0),
             "changesPercentage": float(q.get("regularMarketChangePercent") or 0),
         }
-    except:
+    except Exception as e:
+        print("YAHOO QUOTE FAIL:", symbol, e)
         return {"price": 0, "changesPercentage": 0}
 
 
@@ -91,15 +106,22 @@ def get_history_yahoo(symbol):
 
     try:
         closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
-        return [float(x) for x in closes if isinstance(x, (int, float))]
-    except:
+        prices = [float(x) for x in closes if isinstance(x, (int, float))]
+
+        print("YAHOO HISTORY LEN:", len(prices))
+
+        return prices
+
+    except Exception as e:
+        print("YAHOO HISTORY FAIL:", symbol, e)
         return []
 
 
 # =========================
-# INDICATORS (FIXED)
+# INDICATORS
 # =========================
 def sma(prices, period):
+
     if len(prices) == 0:
         return 0
 
@@ -143,14 +165,13 @@ def score_v6(q, prices):
 
     rsi = calc_rsi(prices)
 
-    # 🚨 FIXED (IMPORTANT)
     ma50 = sma(prices, 50)
     ma200 = sma(prices, 200)
 
     score = 60
     trend = "SIDE"
 
-    # ===== TREND =====
+    # TREND
     if ma50 > ma200:
         score += 20
         trend = "BULL TREND"
@@ -158,7 +179,7 @@ def score_v6(q, prices):
         score -= 10
         trend = "BEAR / SIDE"
 
-    # ===== MOMENTUM =====
+    # MOMENTUM
     if change > 3:
         score += 15
     elif change > 0:
@@ -166,7 +187,7 @@ def score_v6(q, prices):
     elif change < -3:
         score -= 10
 
-    # ===== RSI =====
+    # RSI
     if rsi < 30:
         score += 20
     elif rsi < 45:
@@ -174,7 +195,7 @@ def score_v6(q, prices):
     elif rsi > 75:
         score -= 15
 
-    # ===== BREAKOUT =====
+    # BREAKOUT
     breakout = "NONE"
 
     if price > ma50 > ma200:
@@ -184,7 +205,7 @@ def score_v6(q, prices):
         score -= 10
         breakout = "WEAK"
 
-    # ===== UPSIDE =====
+    # UPSIDE
     if ma50 > ma200 and rsi < 60:
         upside = 8
     elif ma50 > ma200:
@@ -194,7 +215,7 @@ def score_v6(q, prices):
     else:
         upside = 3
 
-    # ===== RISK =====
+    # RISK
     risk = 0
     if ma50 < ma200:
         risk += 4
@@ -215,15 +236,18 @@ def score_v6(q, prices):
 # =========================
 def send(msg):
 
+    print("\n======================")
     print("TELEGRAM MESSAGE:")
     print(msg)
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
-    requests.post(url, data={
+    r = requests.post(url, data={
         "chat_id": CHAT_ID,
         "text": msg
     })
+
+    print("TELEGRAM STATUS:", r.status_code)
 
 
 # =========================
@@ -231,15 +255,20 @@ def send(msg):
 # =========================
 def main():
 
-    print("🚀 V6 STABLE FINAL FIX")
+    print("🚀 V6 DEBUG STABLE START")
     print("TOTAL STOCKS:", len(STOCKS))
 
     results = []
 
     for s in STOCKS:
 
+        print("\nCHECK:", s)
+
         q = get_quote(s)
         prices = get_history(s)
+
+        print("QUOTE:", q)
+        print("PRICE LEN:", len(prices))
 
         if not q:
             q = {"price": 0, "changesPercentage": 0}
@@ -262,14 +291,16 @@ def main():
             "breakout": breakout
         })
 
-    results = sorted(results, key=lambda x: x["score"], reverse=True)
-    top = results[:10]
+    print("\nRESULTS COUNT:", len(results))
 
-    if len(top) == 0:
+    if len(results) == 0:
         send("⚠️ No signals today")
         return
 
-    msg = "🚀 V6 STABLE TOP 10\n\n"
+    results = sorted(results, key=lambda x: x["score"], reverse=True)
+    top = results[:10]
+
+    msg = "🚀 V6 DEBUG STABLE TOP 10\n\n"
 
     for i, x in enumerate(top, 1):
 
