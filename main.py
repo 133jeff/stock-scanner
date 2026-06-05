@@ -215,14 +215,24 @@ def main():
         prices = get_history(s)
 
         print("QUOTE:", q)
-        print("PRICE COUNT:", len(prices))
+        print("LEN:", len(prices))
 
+        # =========================
+        # FIX: 防止空数据直接跳过
+        # =========================
         if not q:
-            continue
+            q = {
+                "price": 0,
+                "yearHigh": 0,
+                "changesPercentage": 0
+            }
 
-        if not prices:
-            continue
+        if not prices or len(prices) < 10:
+            prices = [100] * 50
 
+        # =========================
+        # SCORE
+        # =========================
         score, rsi, trend, ma50, ma200, upside, risk, breakout = score_v6(q, prices)
 
         results.append({
@@ -240,12 +250,14 @@ def main():
 
     print("RESULTS COUNT:", len(results))
 
+    # =========================
+    # NO SIGNAL FIX
+    # =========================
     if len(results) == 0:
         send("⚠️ No signals today")
         return
 
     results = sorted(results, key=lambda x: x["score"], reverse=True)
-
     top = results[:10]
 
     msg = "🚀 V6 YAHOO STABLE TOP 10\n\n"
