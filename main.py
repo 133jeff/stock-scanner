@@ -16,9 +16,7 @@ STOCKS = get_universe()
 # =========================
 def safe_get(url):
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0"
-        }
+        headers = {"User-Agent": "Mozilla/5.0"}
         r = requests.get(url, headers=headers, timeout=10)
 
         if r.status_code != 200:
@@ -32,54 +30,87 @@ def safe_get(url):
     except:
         return None
 
+
 # =========================
-# YAHOO QUOTE
+# FMP + YAHOO QUOTE
 # =========================
 def get_quote(symbol):
+
+    url = f"https://financialmodelingprep.com/stable/quote?symbol={symbol}&apikey={FMP_KEY}"
+    data = safe_get(url)
+
+    if isinstance(data, list) and len(data) > 0:
+        q = data[0]
+        return {
+            "price": float(q.get("price") or 0),
+            "changesPercentage": float(q.get("changesPercentage") or 0),
+        }
+
+    return get_quote_yahoo(symbol)
+
+
+def get_quote_yahoo(symbol):
     url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
     data = safe_get(url)
 
     try:
         q = data["quoteResponse"]["result"][0]
         return {
-            "price": q.get("regularMarketPrice") or 0,
-            "yearHigh": q.get("fiftyTwoWeekHigh") or 0,
-            "changesPercentage": q.get("regularMarketChangePercent") or 0,
+            "price": float(q.get("regularMarketPrice") or 0),
+            "changesPercentage": float(q.get("regularMarketChangePercent") or 0),
         }
     except:
-        return None
+        return {"price": 0, "changesPercentage": 0}
+
 
 # =========================
-# YAHOO HISTORY (FIXED)
+# HISTORY
 # =========================
 def get_history(symbol):
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
+
+    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_KEY}&timeseries=200"
+    data = safe_get(url)
+
+    if data and "historical" in data:
+        prices = [
+            float(x["close"])
+            for x in reversed(data["historical"])
+            if x.get("close") is not None
+        ]
+
+        if len(prices) >= 50:
+            return prices
+
+    return get_history_yahoo(symbol)
+
+
+def get_history_yahoo(symbol):
+
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=6mo&interval=1d"
     data = safe_get(url)
 
     try:
-        result = data["chart"]["result"][0]
-        closes = result["indicators"]["quote"][0].get("close", [])
-
-        prices = []
-        for x in closes:
-            if x is not None:
-                prices.append(float(x))
-
-        return prices[-250:]
-
+        closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+        return [float(x) for x in closes if isinstance(x, (int, float))]
     except:
         return []
 
+
 # =========================
-# INDICATORS
+# INDICATORS (FIXED)
 # =========================
 def sma(prices, period):
+    if len(prices) == 0:
+        return 0
+
     if len(prices) < period:
         return sum(prices) / len(prices)
+
     return sum(prices[-period:]) / period
 
 
 def calc_rsi(prices):
+
     if len(prices) < 14:
         return 50
 
@@ -98,21 +129,23 @@ def calc_rsi(prices):
     rs = gains / losses
     return 100 - (100 / (1 + rs))
 
+
 # =========================
-# SCORING V6 FIXED
+# SCORING
 # =========================
 def score_v6(q, prices):
 
-    price = q.get("price")
-    if not price or len(prices) < 20:
+    price = q.get("price") or 0
+    change = q.get("changesPercentage") or 0
+
+    if price <= 0 or len(prices) < 20:
         return 0, 50, "NO DATA", 0, 0, 0, 0, "NONE"
 
     rsi = calc_rsi(prices)
 
-    ma50 = sma(prices, min(50, len(prices)))
-    ma200 = sma(prices, min(200, len(prices)))
-
-    change = float(q.get("changesPercentage") or 0)
+    # 🚨 FIXED (IMPORTANT)
+    ma50 = sma(prices, 50)
+    ma200 = sma(prices, 200)
 
     score = 60
     trend = "SIDE"
@@ -143,6 +176,7 @@ def score_v6(q, prices):
 
     # ===== BREAKOUT =====
     breakout = "NONE"
+
     if price > ma50 > ma200:
         score += 15
         breakout = "BREAKOUT UP"
@@ -175,6 +209,7 @@ def score_v6(q, prices):
 
     return score, rsi, trend, ma50, ma200, upside, risk, breakout
 
+
 # =========================
 # TELEGRAM
 # =========================
@@ -185,54 +220,33 @@ def send(msg):
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
-    r = requests.post(
-        url,
-        data={
-            "chat_id": CHAT_ID,
-            "text": msg
-        }
-    )
+    requests.post(url, data={
+        "chat_id": CHAT_ID,
+        "text": msg
+    })
 
-    print("TELEGRAM STATUS:", r.status_code)
 
 # =========================
 # MAIN
 # =========================
 def main():
 
-    print("🚀 V6 YAHOO STABLE FINAL")
+    print("🚀 V6 STABLE FINAL FIX")
     print("TOTAL STOCKS:", len(STOCKS))
 
     results = []
 
-    print("ENTER LOOP")
-
     for s in STOCKS:
-
-        print("CHECK:", s)
 
         q = get_quote(s)
         prices = get_history(s)
 
-        print("QUOTE:", q)
-        print("LEN:", len(prices))
-
-        # =========================
-        # FIX: 防止空数据直接跳过
-        # =========================
         if not q:
-            q = {
-                "price": 0,
-                "yearHigh": 0,
-                "changesPercentage": 0
-            }
+            q = {"price": 0, "changesPercentage": 0}
 
-        if not prices or len(prices) < 10:
+        if not prices:
             prices = [100] * 50
 
-        # =========================
-        # SCORE
-        # =========================
         score, rsi, trend, ma50, ma200, upside, risk, breakout = score_v6(q, prices)
 
         results.append({
@@ -248,19 +262,14 @@ def main():
             "breakout": breakout
         })
 
-    print("RESULTS COUNT:", len(results))
-
-    # =========================
-    # NO SIGNAL FIX
-    # =========================
-    if len(results) == 0:
-        send("⚠️ No signals today")
-        return
-
     results = sorted(results, key=lambda x: x["score"], reverse=True)
     top = results[:10]
 
-    msg = "🚀 V6 YAHOO STABLE TOP 10\n\n"
+    if len(top) == 0:
+        send("⚠️ No signals today")
+        return
+
+    msg = "🚀 V6 STABLE TOP 10\n\n"
 
     for i, x in enumerate(top, 1):
 
@@ -276,6 +285,6 @@ def main():
 
     send(msg)
 
-# =========================
+
 if __name__ == "__main__":
     main()
