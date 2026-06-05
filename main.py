@@ -12,9 +12,10 @@ CHAT_ID = os.getenv("CHAT_ID")
 STOCKS = get_universe()
 
 # =========================
-# SAFE REQUEST (DEBUG VERSION)
+# SAFE REQUEST (FINAL)
 # =========================
 def safe_get(url):
+
     try:
         headers = {
             "User-Agent": "Mozilla/5.0",
@@ -23,25 +24,23 @@ def safe_get(url):
 
         r = requests.get(url, headers=headers, timeout=10)
 
-        print("\n======================")
-        print("API CALL:", url)
-        print("STATUS:", r.status_code)
-
         if r.status_code != 200:
-            print("BODY:", r.text[:200])
             return None
 
         try:
-            data = r.json()
-            return data
-        except Exception as e:
-            print("JSON ERROR:", e)
-            print("RAW:", r.text[:200])
+            return r.json()
+        except:
             return None
 
-    except Exception as e:
-        print("REQUEST ERROR:", e)
+    except:
         return None
+
+
+# =========================
+# DATA QUALITY CHECK
+# =========================
+def is_valid_price(p):
+    return p is not None and p > 0 and isinstance(p, (int, float))
 
 
 # =========================
@@ -49,16 +48,24 @@ def safe_get(url):
 # =========================
 def get_quote(symbol):
 
-    url = f"https://financialmodelingprep.com/stable/quote?symbol={symbol}&apikey={FMP_KEY}"
-    data = safe_get(url)
+    # ===== FMP =====
+    try:
+        url = f"https://financialmodelingprep.com/stable/quote?symbol={symbol}&apikey={FMP_KEY}"
+        data = safe_get(url)
 
-    if isinstance(data, list) and len(data) > 0:
-        q = data[0]
-        return {
-            "price": float(q.get("price") or 0),
-            "changesPercentage": float(q.get("changesPercentage") or 0),
-        }
+        if isinstance(data, list) and len(data) > 0:
+            q = data[0]
+            price = q.get("price")
 
+            if is_valid_price(price):
+                return {
+                    "price": float(price),
+                    "changesPercentage": float(q.get("changesPercentage") or 0)
+                }
+    except:
+        pass
+
+    # ===== YAHOO =====
     return get_quote_yahoo(symbol)
 
 
@@ -69,51 +76,61 @@ def get_quote_yahoo(symbol):
 
     try:
         q = data["quoteResponse"]["result"][0]
+
+        price = q.get("regularMarketPrice")
+
         return {
-            "price": float(q.get("regularMarketPrice") or 0),
-            "changesPercentage": float(q.get("regularMarketChangePercent") or 0),
+            "price": float(price) if is_valid_price(price) else 0,
+            "changesPercentage": float(q.get("regularMarketChangePercent") or 0)
         }
-    except Exception as e:
-        print("YAHOO QUOTE FAIL:", symbol, e)
+
+    except:
         return {"price": 0, "changesPercentage": 0}
 
 
 # =========================
-# HISTORY
+# HISTORY (FINAL SAFE)
 # =========================
 def get_history(symbol):
 
-    url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_KEY}&timeseries=200"
-    data = safe_get(url)
+    # ===== FMP =====
+    try:
+        url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?apikey={FMP_KEY}&timeseries=200"
+        data = safe_get(url)
 
-    if data and "historical" in data:
-        prices = [
-            float(x["close"])
-            for x in reversed(data["historical"])
-            if x.get("close") is not None
-        ]
+        if data and "historical" in data:
+            prices = [
+                float(x["close"])
+                for x in reversed(data["historical"])
+                if is_valid_price(x.get("close"))
+            ]
 
-        if len(prices) >= 50:
-            return prices
+            if len(prices) >= 60:
+                return prices
+    except:
+        pass
 
+    # ===== YAHOO =====
     return get_history_yahoo(symbol)
 
 
 def get_history_yahoo(symbol):
 
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=6mo&interval=1d"
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
     data = safe_get(url)
 
     try:
         closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
-        prices = [float(x) for x in closes if isinstance(x, (int, float))]
 
-        print("YAHOO HISTORY LEN:", len(prices))
+        prices = [float(x) for x in closes if is_valid_price(x)]
 
-        return prices
+        # 最低保证
+        if len(prices) < 20:
+            return []
 
-    except Exception as e:
-        print("YAHOO HISTORY FAIL:", symbol, e)
+        return prices[-250:]
+
+    except:
         return []
 
 
@@ -153,14 +170,14 @@ def calc_rsi(prices):
 
 
 # =========================
-# SCORING
+# SCORING (FINAL LOGIC)
 # =========================
-def score_v6(q, prices):
+def score_v7(q, prices):
 
-    price = q.get("price") or 0
-    change = q.get("changesPercentage") or 0
+    price = q.get("price", 0)
+    change = q.get("changesPercentage", 0)
 
-    if price <= 0 or len(prices) < 20:
+    if price <= 0 or len(prices) < 30:
         return 0, 50, "NO DATA", 0, 0, 0, 0, "NONE"
 
     rsi = calc_rsi(prices)
@@ -174,10 +191,10 @@ def score_v6(q, prices):
     # TREND
     if ma50 > ma200:
         score += 20
-        trend = "BULL TREND"
+        trend = "BULL"
     else:
         score -= 10
-        trend = "BEAR / SIDE"
+        trend = "BEAR"
 
     # MOMENTUM
     if change > 3:
@@ -200,7 +217,7 @@ def score_v6(q, prices):
 
     if price > ma50 > ma200:
         score += 15
-        breakout = "BREAKOUT UP"
+        breakout = "BREAKOUT"
     elif price < ma50 < ma200:
         score -= 10
         breakout = "WEAK"
@@ -236,18 +253,14 @@ def score_v6(q, prices):
 # =========================
 def send(msg):
 
-    print("\n======================")
-    print("TELEGRAM MESSAGE:")
     print(msg)
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
-    r = requests.post(url, data={
+    requests.post(url, data={
         "chat_id": CHAT_ID,
         "text": msg
     })
-
-    print("TELEGRAM STATUS:", r.status_code)
 
 
 # =========================
@@ -255,28 +268,23 @@ def send(msg):
 # =========================
 def main():
 
-    print("🚀 V6 DEBUG STABLE START")
+    print("🚀 V7 PRO FINAL START")
     print("TOTAL STOCKS:", len(STOCKS))
 
     results = []
 
     for s in STOCKS:
 
-        print("\nCHECK:", s)
-
         q = get_quote(s)
         prices = get_history(s)
-
-        print("QUOTE:", q)
-        print("PRICE LEN:", len(prices))
 
         if not q:
             q = {"price": 0, "changesPercentage": 0}
 
         if not prices:
-            prices = [100] * 50
+            continue   # ❗关键：不要假数据污染
 
-        score, rsi, trend, ma50, ma200, upside, risk, breakout = score_v6(q, prices)
+        score, rsi, trend, ma50, ma200, upside, risk, breakout = score_v7(q, prices)
 
         results.append({
             "symbol": s,
@@ -291,16 +299,15 @@ def main():
             "breakout": breakout
         })
 
-    print("\nRESULTS COUNT:", len(results))
-
-    if len(results) == 0:
-        send("⚠️ No signals today")
-        return
-
     results = sorted(results, key=lambda x: x["score"], reverse=True)
+
     top = results[:10]
 
-    msg = "🚀 V6 DEBUG STABLE TOP 10\n\n"
+    if len(top) == 0:
+        send("⚠️ No valid signals (data issue)")
+        return
+
+    msg = "🚀 V7 PRO FINAL TOP 10\n\n"
 
     for i, x in enumerate(top, 1):
 
@@ -308,7 +315,7 @@ def main():
             f"{i}. {x['symbol']} ⭐ {x['score']}/100\n"
             f"💰 {x['price']}\n"
             f"📊 RSI: {x['rsi']}\n"
-            f"📈 {x['trend']} (MA50:{x['ma50']} MA200:{x['ma200']})\n"
+            f"📈 {x['trend']} (50:{x['ma50']} 200:{x['ma200']})\n"
             f"🚀 UPSIDE: {x['upside']}/10\n"
             f"⚠️ RISK: {x['risk']}/10\n"
             f"💥 {x['breakout']}\n\n"
