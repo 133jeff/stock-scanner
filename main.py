@@ -52,6 +52,7 @@ def get_quote(symbol):
     try:
         url = f"https://financialmodelingprep.com/stable/quote?symbol={symbol}&apikey={FMP_KEY}"
         data = safe_get(url)
+        print("FMP RAW:", data)
 
         if isinstance(data, list) and len(data) > 0:
             q = data[0]
@@ -73,6 +74,7 @@ def get_quote_yahoo(symbol):
 
     url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
     data = safe_get(url)
+    print("YAHOO QUOTE RAW:", data)
 
     try:
         q = data["quoteResponse"]["result"][0]
@@ -118,6 +120,7 @@ def get_history_yahoo(symbol):
 
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1y&interval=1d"
     data = safe_get(url)
+    print("YAHOO HISTORY RAW:", data)
 
     try:
         closes = data["chart"]["result"][0]["indicators"]["quote"][0]["close"]
