@@ -179,11 +179,21 @@ def score_v6(q, prices):
 # TELEGRAM
 # =========================
 def send(msg):
-    if len(msg) > 3500:
-        msg = msg[:3500] + "\n...(CUT)"
+
+    print("TELEGRAM MESSAGE:")
+    print(msg)
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    requests.post(url, data={"chat_id": CHAT_ID, "text": msg})
+
+    r = requests.post(
+        url,
+        data={
+            "chat_id": CHAT_ID,
+            "text": msg
+        }
+    )
+
+    print("TELEGRAM STATUS:", r.status_code)
 
 # =========================
 # MAIN
@@ -197,10 +207,18 @@ def main():
 
     for s in STOCKS:
 
+        print("CHECK:", s)
+
         q = get_quote(s)
         prices = get_history(s)
 
-        if not q or not prices:
+        print("QUOTE:", q)
+        print("PRICE COUNT:", len(prices))
+
+        if not q:
+            continue
+
+        if not prices:
             continue
 
         score, rsi, trend, ma50, ma200, upside, risk, breakout = score_v6(q, prices)
@@ -218,12 +236,13 @@ def main():
             "breakout": breakout
         })
 
+    print("RESULTS COUNT:", len(results))
+
     if len(results) == 0:
         send("⚠️ No signals today")
         return
 
     results = sorted(results, key=lambda x: x["score"], reverse=True)
-    top = results[:10]
 
     msg = "🚀 V6 YAHOO STABLE TOP 10\n\n"
 
